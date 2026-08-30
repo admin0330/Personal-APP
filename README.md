@@ -83,3 +83,7 @@ docker compose up -d --build
 ## 相关仓库
 
 - 上游项目：[MasterAlanLab/emailbox](https://github.com/MasterAlanLab/emailbox)
+
+## License
+
+MIT — 见 [LICENSE](LICENSE)。
