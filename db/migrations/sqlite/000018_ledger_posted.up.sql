@@ -1,0 +1,1 @@
+ALTER TABLE ledger_transactions ADD COLUMN posted INTEGER NOT NULL DEFAULT 1;

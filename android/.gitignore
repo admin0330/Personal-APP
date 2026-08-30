@@ -1,0 +1,14 @@
+# 本地环境与签名配置，切勿提交
+/local.properties
+/keystore.properties
+*.jks
+*.keystore
+
+# Gradle / 构建产物
+.gradle/
+build/
+/app/build/
+/app/release/
+captures/
+.externalNativeBuild/
+.cxx/

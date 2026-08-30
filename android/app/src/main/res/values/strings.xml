@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ym1r</string>
+    <string name="widget_description">显示本机加密缓存的未读数量与同步状态</string>
+    <string name="widget_title">Ym1r 邮箱</string>
+    <string name="widget_zero">0</string>
+    <string name="widget_zero_accounts">0 个缓存邮箱</string>
+    <string name="widget_refresh">刷新</string>
+    <string name="widget_waiting">待同步</string>
+</resources>
