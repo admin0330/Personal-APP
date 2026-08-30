@@ -20,12 +20,27 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 @Serializable
+data class PendingLedgerUpdate(
+    val serverId: String,
+    val posted: Boolean? = null,
+    val occurredAt: String? = null,
+    val type: String? = null,
+    val amountMinor: Long? = null,
+    val currency: String? = null,
+    val category: String? = null,
+    val merchant: String? = null,
+    val note: String? = null,
+)
+
+@Serializable
 data class LedgerLocalData(
     val tenant: String,
     val month: String = "",
     val transactions: List<LedgerTransaction> = emptyList(),
     val summary: LedgerSummary? = null,
     val pendingCreates: List<CreateLedgerTransactionRequest> = emptyList(),
+    val pendingUpdates: List<PendingLedgerUpdate> = emptyList(),
+    val pendingDeletes: List<String> = emptyList(),
 )
 
 object LedgerLocalStore {
@@ -94,6 +109,42 @@ object LedgerLocalStore {
                     .build(),
             )
         }.generateKey()
+    }
+
+    @Synchronized
+    fun putTransaction(tenant: String, t: LedgerTransaction) {
+        val data = load(tenant)
+        save(data.copy(transactions = data.transactions.filterNot { it.id == t.id } + t))
+    }
+
+    @Synchronized
+    fun removeTransaction(tenant: String, id: String) {
+        val data = load(tenant)
+        save(data.copy(transactions = data.transactions.filterNot { it.id == id }))
+    }
+
+    @Synchronized
+    fun enqueueUpdate(tenant: String, op: PendingLedgerUpdate) {
+        val data = load(tenant)
+        save(data.copy(pendingUpdates = data.pendingUpdates + op))
+    }
+
+    @Synchronized
+    fun enqueueDelete(tenant: String, serverId: String) {
+        val data = load(tenant)
+        save(data.copy(pendingDeletes = data.pendingDeletes + serverId))
+    }
+
+    @Synchronized
+    fun popPendingUpdate(tenant: String, op: PendingLedgerUpdate) {
+        val data = load(tenant)
+        save(data.copy(pendingUpdates = data.pendingUpdates.filterNot { it == op }))
+    }
+
+    @Synchronized
+    fun popPendingDelete(tenant: String, serverId: String) {
+        val data = load(tenant)
+        save(data.copy(pendingDeletes = data.pendingDeletes.filterNot { it == serverId }))
     }
 
     private fun file(tenant: String): File {

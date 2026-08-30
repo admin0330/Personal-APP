@@ -3,6 +3,7 @@ package com.masteralanlab.emailbox
 import android.app.Application
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import com.masteralanlab.emailbox.data.NotesLocalStore
 import com.masteralanlab.emailbox.data.Prefs
 import com.masteralanlab.emailbox.data.NavigationSettings
 import com.masteralanlab.emailbox.data.SecureMailCache
@@ -19,6 +20,7 @@ class EmailboxApp : Application(), ImageLoaderFactory {
         NavigationSettings.load()
         SecureMailCache.init(this)
         LedgerLocalStore.init(this)
+        NotesLocalStore.init(this)
         ThemeSettings.load()
         UpdateNotifications.createChannel(this)
         MailNotifyService.createChannels(this)

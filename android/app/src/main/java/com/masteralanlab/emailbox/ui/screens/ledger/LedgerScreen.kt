@@ -202,6 +202,20 @@ class LedgerViewModel : ViewModel() {
     ) {
         val minor = parseMinor(amount) ?: run { _message.tryEmit("请输入正确金额"); return }
         val tenant = Prefs.tenantId.orEmpty()
+        // 本地优先：立即写本地缓存并刷新界面（无等待），后台再同步服务器
+        val updated = item.copy(
+            type = type, amount_minor = minor, currency = currency, category = category,
+            occurred_at = occurredAt ?: item.occurred_at, merchant = merchant.trim(),
+            note = note.trim(), posted = posted ?: item.posted,
+        )
+        LedgerLocalStore.putTransaction(tenant, updated)
+        state.update { current -> current.copy(transactions = current.transactions.map { if (it.id == item.id) updated else it }) }
+        val op = com.masteralanlab.emailbox.data.PendingLedgerUpdate(
+            serverId = item.id, posted = posted, occurredAt = occurredAt,
+            type = type, amountMinor = minor, currency = currency, category = category,
+            merchant = merchant.trim(), note = note.trim(),
+        )
+        LedgerLocalStore.enqueueUpdate(tenant, op)
         viewModelScope.launch {
             when (val result = apiCall {
                 updateLedgerTransaction(
@@ -213,16 +227,32 @@ class LedgerViewModel : ViewModel() {
                     ),
                 )
             }) {
-                is ApiResult.Success -> { _message.tryEmit("已更新"); load() }
-                is ApiResult.Failure -> _message.tryEmit(result.message)
+                is ApiResult.Success -> { LedgerLocalStore.popPendingUpdate(tenant, op); load() }
+                is ApiResult.Failure -> {
+                    // 回滚：恢复原记录并提示
+                    LedgerLocalStore.putTransaction(tenant, item)
+                    state.update { current -> current.copy(transactions = current.transactions.map { if (it.id == item.id) item else it }) }
+                    _message.tryEmit(result.message)
+                }
             }
         }
     }
 
-    fun delete(item: LedgerTransaction) = viewModelScope.launch {
-        when (val result = apiCallUnit { deleteLedgerTransaction(Prefs.tenantId.orEmpty(), item.id) }) {
-            is ApiResult.Success -> { _message.tryEmit("已删除"); load() }
-            is ApiResult.Failure -> _message.tryEmit(result.message)
+    fun delete(item: LedgerTransaction) {
+        val tenant = Prefs.tenantId.orEmpty()
+        // 本地优先：立即从列表与缓存移除
+        LedgerLocalStore.removeTransaction(tenant, item.id)
+        state.update { current -> current.copy(transactions = current.transactions.filterNot { it.id == item.id }) }
+        viewModelScope.launch {
+            when (val result = apiCallUnit { deleteLedgerTransaction(tenant, item.id) }) {
+                is ApiResult.Success -> { _message.tryEmit("已删除"); load() }
+                is ApiResult.Failure -> {
+                    LedgerLocalStore.putTransaction(tenant, item)
+                    state.update { current -> current.copy(transactions = current.transactions.map { if (it.id == item.id) item else it }) }
+                    _message.tryEmit(result.message)
+                    load()
+                }
+            }
         }
     }
 
@@ -239,6 +269,45 @@ class LedgerViewModel : ViewModel() {
                     is ApiResult.Failure -> {
                         if (result.httpStatus in listOf(401, 403, 404)) return
                         if (result.httpStatus == 409 && reconcileConflict(tenant, request)) break
+                        if (result.httpStatus !in listOf(0, 429, 502, 503, 504) || attempt == 4) break
+                        delay(delays[attempt])
+                    }
+                }
+            }
+        }
+
+        // 编辑/入账切换类更新
+        for (op in LedgerLocalStore.load(tenant).pendingUpdates.toList()) {
+            val delays = listOf(5_000L, 30_000L, 120_000L, 600_000L)
+            for (attempt in 0 until 5) {
+                when (val result = apiCall {
+                    updateLedgerTransaction(
+                        tenant, op.serverId,
+                        UpdateLedgerTransactionRequest(
+                            type = op.type, amount_minor = op.amountMinor, currency = op.currency,
+                            category = op.category, occurred_at = op.occurredAt,
+                            merchant = op.merchant, note = op.note, posted = op.posted,
+                        ),
+                    )
+                }) {
+                    is ApiResult.Success -> { LedgerLocalStore.popPendingUpdate(tenant, op); break }
+                    is ApiResult.Failure -> {
+                        if (result.httpStatus in listOf(401, 403, 404)) { LedgerLocalStore.popPendingUpdate(tenant, op); break }
+                        if (result.httpStatus !in listOf(0, 429, 502, 503, 504) || attempt == 4) break
+                        delay(delays[attempt])
+                    }
+                }
+            }
+        }
+
+        // 删除
+        for (serverId in LedgerLocalStore.load(tenant).pendingDeletes.toList()) {
+            val delays = listOf(5_000L, 30_000L, 120_000L, 600_000L)
+            for (attempt in 0 until 5) {
+                when (val result = apiCallUnit { deleteLedgerTransaction(tenant, serverId) }) {
+                    is ApiResult.Success -> { LedgerLocalStore.popPendingDelete(tenant, serverId); break }
+                    is ApiResult.Failure -> {
+                        if (result.httpStatus in listOf(401, 403, 404)) { LedgerLocalStore.popPendingDelete(tenant, serverId); break }
                         if (result.httpStatus !in listOf(0, 429, 502, 503, 504) || attempt == 4) break
                         delay(delays[attempt])
                     }

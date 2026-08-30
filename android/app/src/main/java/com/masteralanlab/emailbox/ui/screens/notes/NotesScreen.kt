@@ -54,6 +54,9 @@ import com.masteralanlab.emailbox.data.remote.ApiResult
 import com.masteralanlab.emailbox.data.remote.CreateNoteRequest
 import com.masteralanlab.emailbox.data.remote.Note
 import com.masteralanlab.emailbox.data.remote.UpdateNoteRequest
+import com.masteralanlab.emailbox.data.NotesLocalData
+import com.masteralanlab.emailbox.data.NotesLocalStore
+import com.masteralanlab.emailbox.data.PendingNoteOp
 import com.masteralanlab.emailbox.data.remote.apiCall
 import com.masteralanlab.emailbox.data.remote.apiCallUnit
 import com.masteralanlab.emailbox.ui.components.EmptyBox
@@ -70,67 +73,143 @@ data class NotesState(
     val saving: Boolean = false,
 )
 
-class NotesViewModel : ViewModel() {
+class NotesViewModel(app: android.app.Application) : androidx.lifecycle.AndroidViewModel(app) {
     val state = MutableStateFlow(NotesState())
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages = _messages.asSharedFlow()
     private var initialized = false
+    private var flushing = false
 
     fun init() {
         if (initialized) return
         initialized = true
-        load()
+        // 缓存直显（秒级），随后静默刷新——进页永远没有加载动画
+        val tenant = Prefs.tenantId.orEmpty()
+        if (tenant.isNotBlank()) {
+            val local = NotesLocalStore.load(tenant)
+            state.value = NotesState(items = local.notes)
+        }
+        refresh(silent = true)
+        flush()
     }
 
-    fun load() = viewModelScope.launch {
+    /** 静默拉取服务器最新并覆盖本地缓存；加载过程不出现任何动画。 */
+    fun refresh(silent: Boolean = true) {
         val tenant = Prefs.tenantId.orEmpty()
-        if (tenant.isBlank()) {
-            state.update { it.copy(loading = false) }
-            _messages.tryEmit("未选择工作空间")
-            return@launch
-        }
-        state.update { it.copy(loading = true) }
-        when (val result = apiCall { notes(tenant) }) {
-            is ApiResult.Success -> state.value = NotesState(result.data)
-            is ApiResult.Failure -> {
-                state.update { it.copy(loading = false) }
-                _messages.tryEmit(result.message)
+        if (tenant.isBlank()) return
+        viewModelScope.launch {
+            when (val result = apiCall { notes(tenant) }) {
+                is ApiResult.Success -> {
+                    NotesLocalStore.save(NotesLocalData(tenant, result.data))
+                    state.value = NotesState(items = result.data)
+                }
+                is ApiResult.Failure -> if (!silent) _messages.tryEmit(result.message)
             }
         }
     }
 
+    /** 本地优先：先写本地（立即显示），入队后后台按顺序同步服务器。 */
     fun save(existing: Note?, title: String, content: String, pinned: Boolean, done: () -> Unit) {
         val cleanTitle = title.trim()
         if (cleanTitle.isBlank()) {
             _messages.tryEmit("请输入标题")
             return
         }
-        viewModelScope.launch {
-            state.update { it.copy(saving = true) }
-            val tenant = Prefs.tenantId.orEmpty()
-            val result = if (existing == null) {
-                apiCall { createNote(tenant, CreateNoteRequest(cleanTitle, content.trim(), pinned)) }
-            } else {
-                apiCall { updateNote(tenant, existing.id, UpdateNoteRequest(cleanTitle, content.trim(), pinned)) }
-            }
-            state.update { it.copy(saving = false) }
-            when (result) {
-                is ApiResult.Success -> {
-                    done()
-                    load()
-                }
-                is ApiResult.Failure -> _messages.tryEmit(result.message)
-            }
-        }
+        val tenant = Prefs.tenantId.orEmpty()
+        if (tenant.isBlank()) { _messages.tryEmit("未选择工作空间"); return }
+        val now = java.time.OffsetDateTime.now().toString()
+        val localId = existing?.id ?: NotesLocalStore.newLocalId()
+        val localNote = Note(
+            id = localId, tenant_id = tenant, title = cleanTitle, content = content.trim(),
+            is_pinned = pinned, created_at = existing?.created_at ?: now, updated_at = now,
+        )
+        // 1) 本地立即生效
+        NotesLocalStore.putNote(tenant, localNote)
+        state.value = NotesState(items = NotesLocalStore.load(tenant).notes)
+        // 2) 入队（新建/更新统一为 upsert 语义，删除仅对已有服务器 id 的条目）
+        NotesLocalStore.enqueueOp(
+            tenant,
+            PendingNoteOp(
+                kind = if (existing == null) "create" else "update",
+                localId = localId,
+                serverId = existing?.id,
+                title = cleanTitle, content = content.trim(), pinned = pinned,
+            ),
+        )
+        done()
+        flush()
     }
 
-    fun delete(note: Note, done: () -> Unit) = viewModelScope.launch {
-        when (val result = apiCallUnit { deleteNote(Prefs.tenantId.orEmpty(), note.id) }) {
-            is ApiResult.Success -> {
-                done()
-                state.update { value -> value.copy(items = value.items.filterNot { it.id == note.id }) }
+    fun delete(note: Note, done: () -> Unit) {
+        val tenant = Prefs.tenantId.orEmpty()
+        if (tenant.isBlank()) return
+        // 本地立即移除
+        NotesLocalStore.removeNote(tenant, note.id)
+        state.value = NotesState(items = NotesLocalStore.load(tenant).notes)
+        done()
+        // 本地尚未同步过的新笔记：直接丢弃，不需要服务器调用
+        if (note.id.startsWith("local-")) {
+            NotesLocalStore.load(tenant).pendingOps
+                .filter { it.localId == note.id }
+                .forEach { NotesLocalStore.popOp(tenant, it) }
+            return
+        }
+        NotesLocalStore.enqueueOp(
+            tenant,
+            PendingNoteOp(kind = "delete", localId = note.id, serverId = note.id, title = note.title),
+        )
+        flush()
+    }
+
+    /** 按队列顺序回放待同步操作；单条失败保留在队首等待下次（指数外置退避由调用方控制）。 */
+    fun flush() {
+        val tenant = Prefs.tenantId.orEmpty()
+        if (tenant.isBlank() || flushing) return
+        flushing = true
+        viewModelScope.launch {
+            try {
+                var guard = 0
+                while (guard++ < 50) {
+                    val ops = NotesLocalStore.load(tenant).pendingOps
+                    val op = ops.firstOrNull() ?: break
+                    val ok = when (op.kind) {
+                        "create" -> runCatching {
+                            val r = apiCall { createNote(tenant, CreateNoteRequest(op.title, op.content, op.pinned)) }
+                            if (r is ApiResult.Success) {
+                                NotesLocalStore.promote(tenant, op.localId, r.data)
+                                state.value = NotesState(items = NotesLocalStore.load(tenant).notes)
+                            }
+                            r is ApiResult.Success
+                        }.getOrDefault(false)
+
+                        "update" -> runCatching {
+                            val r = apiCall {
+                                updateNote(tenant, op.serverId ?: op.localId, UpdateNoteRequest(op.title, op.content, op.pinned))
+                            }
+                            if (r is ApiResult.Failure && r.httpStatus == 404) {
+                                // 服务器没有这条：退化为新建
+                                val c = apiCall { createNote(tenant, CreateNoteRequest(op.title, op.content, op.pinned)) }
+                                if (c is ApiResult.Success) NotesLocalStore.promote(tenant, op.localId, c.data)
+                                c is ApiResult.Success
+                            } else r is ApiResult.Success
+                        }.getOrDefault(false)
+
+                        "delete" -> runCatching {
+                            val r = apiCallUnit { deleteNote(tenant, op.serverId ?: op.localId) }
+                            // 404 视为已删除成功
+                            r is ApiResult.Success || (r as? ApiResult.Failure)?.httpStatus == 404
+                        }.getOrDefault(false)
+
+                        else -> true
+                    }
+                    if (!ok) break
+                    NotesLocalStore.popOp(tenant, op)
+                }
+                // 队列清空后拉一次服务器权威数据
+                if (NotesLocalStore.load(tenant).pendingOps.isEmpty()) refresh(silent = true)
+            } finally {
+                flushing = false
             }
-            is ApiResult.Failure -> _messages.tryEmit(result.message)
         }
     }
 }
@@ -175,8 +254,7 @@ fun NotesScreen(vm: NotesViewModel = viewModel()) {
                 singleLine = true,
                 shape = RoundedCornerShape(18.dp),
             )
-            if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (!state.loading && visible.isEmpty()) {
+            if (visible.isEmpty()) {
                 EmptyBox(
                     text = if (query.isBlank()) "还没有笔记" else "没有匹配的笔记",
                     icon = Icons.Outlined.Description,
