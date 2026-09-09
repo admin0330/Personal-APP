@@ -39,7 +39,7 @@ interface ApiService {
     suspend fun login(@Body body: LoginRequest): ApiResp<AuthResponse>
 
     @POST("auth/logout")
-    suspend fun logout(): ApiResp<Unit>
+    suspend fun logout(@Header("Cookie") cookie: String? = null): ApiResp<Unit>
 
     @GET("auth/session")
     suspend fun session(): ApiResp<AuthResponse>
@@ -172,6 +172,11 @@ interface ApiService {
         @Path("tenantID") tenantId: String,
         @Path("userID") userId: String,
     ): ApiResp<Unit>
+
+    // ---------------- 平台邀请码 ----------------
+
+    @POST("admin/invites")
+    suspend fun createInvite(@Body body: CreateInviteRequest): ApiResp<SignupInviteCreated>
 
     // ---------------- 分组 ----------------
 

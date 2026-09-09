@@ -1,5 +1,6 @@
 package com.masteralanlab.emailbox.ui.screens.admin
 
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import android.content.ClipData
 import android.content.Context
 import android.widget.Toast
@@ -18,17 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AdminPanelSettings
-import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Search
+import com.masteralanlab.emailbox.ui.nav.Route
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,8 +32,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -79,9 +70,12 @@ import com.masteralanlab.emailbox.ui.components.EmptyBox
 import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.Labels
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductField
+import com.masteralanlab.emailbox.ui.components.ProductSurface
 import com.masteralanlab.emailbox.ui.components.StatusChip
 import com.masteralanlab.emailbox.ui.components.statusContainer
 import com.masteralanlab.emailbox.ui.components.statusContent
+import com.masteralanlab.emailbox.data.remote.presentableErrorMessage
 import com.masteralanlab.emailbox.util.formatShortTime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -374,7 +368,10 @@ class AdminUsersViewModel : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdminUsersScreen(onBack: () -> Unit) {
+fun AdminUsersScreen(
+    onBack: () -> Unit,
+    onNavigate: ((String) -> Unit)? = null,
+) {
     val vm: AdminUsersViewModel = viewModel()
 
     val stats by vm.stats.collectAsState()
@@ -415,13 +412,27 @@ fun AdminUsersScreen(onBack: () -> Unit) {
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { AppTopBar(title = "用户管理", onBack = onBack) },
+        topBar = {
+            AppTopBar(
+                title = "用户管理",
+                onBack = onBack,
+                actions = {
+                    if (onNavigate != null) {
+                        TextButton(onClick = { onNavigate(Route.Quota) }) {
+                            Icon(Ym1rIcons.Server, contentDescription = null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("配额")
+                        }
+                    }
+                },
+            )
+        },
     ) { padding ->
         if (!isAdmin) {
             Box(Modifier.padding(padding).fillMaxSize()) {
                 EmptyBox(
                     text = "需要平台管理员权限\n当前账号无权查看用户管理",
-                    icon = Icons.Outlined.Lock,
+                    icon = Ym1rIcons.Lock,
                 )
             }
         } else {
@@ -543,22 +554,28 @@ private fun PlatformStatsSection(
         Spacer(Modifier.height(8.dp))
         when {
             error != null -> Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Icon(
+                        Ym1rIcons.AlertCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(Modifier.width(10.dp))
                     Text(
-                        error,
+                        presentableErrorMessage(error),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(onClick = onRetry) {
-                        Text("重试", color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text("重试")
                     }
                 }
             }
@@ -589,7 +606,7 @@ private fun PlatformStatsSection(
 private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Column(
@@ -631,17 +648,18 @@ private fun UserFilterRow(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        OutlinedTextField(
+        ProductField(
             value = query,
             onValueChange = onQueryChange,
-            label = { Text("搜索用户名或邮箱") },
+            label = "搜索用户名或邮箱",
+            placeholder = "按用户名或邮箱查找",
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-            trailingIcon = {
+            leading = { Icon(Ym1rIcons.Search, contentDescription = null) },
+            trailing = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { onQueryChange(""); onSubmit() }) {
-                        Icon(Icons.Outlined.Block, contentDescription = "清空")
+                        Icon(Ym1rIcons.X, contentDescription = "清空")
                     }
                 }
             },
@@ -675,7 +693,7 @@ private fun UserFilterRow(
 @Composable
 private fun AdminUserCard(user: AdminUser, onClick: () -> Unit) {
     val overQuota = user.over_quota
-    OutlinedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    ProductSurface(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -788,17 +806,17 @@ private fun UserActionSheet(
             )
             HorizontalDivider()
             if (user.status == "disabled") {
-                ActionItem("启用账号", Icons.Outlined.Person, onEnable)
+                ActionItem("启用账号", Ym1rIcons.User, onEnable)
             } else {
-                ActionItem("停用账号", Icons.Outlined.Block, onDisable)
+                ActionItem("停用账号", Ym1rIcons.Ban, onDisable)
             }
             if (user.platform_role == "admin") {
-                ActionItem("取消平台管理员", Icons.Outlined.AdminPanelSettings, onRevokeAdmin)
+                ActionItem("取消平台管理员", Ym1rIcons.Shield, onRevokeAdmin)
             } else {
-                ActionItem("设为平台管理员", Icons.Outlined.AdminPanelSettings, onGrantAdmin)
+                ActionItem("设为平台管理员", Ym1rIcons.Shield, onGrantAdmin)
             }
-            ActionItem("重置密码", Icons.Outlined.Lock, onResetPassword)
-            ActionItem("删除用户", Icons.Outlined.Delete, onDelete, destructive = true)
+            ActionItem("重置密码", Ym1rIcons.Lock, onResetPassword)
+            ActionItem("删除用户", Ym1rIcons.Trash2, onDelete, destructive = true)
         }
     }
 }
@@ -891,14 +909,14 @@ private fun TempPasswordDialog(password: String, onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Outlined.Lock, contentDescription = null) },
+        icon = { Icon(Ym1rIcons.Lock, contentDescription = null) },
         title = { Text("临时密码已生成") },
         text = {
             Column {
                 Text("该密码只会出现这一次，关闭后无法再次查看，请立即复制并告知用户。")
                 Spacer(Modifier.height(10.dp))
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = MaterialTheme.shapes.small,
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -912,7 +930,7 @@ private fun TempPasswordDialog(password: String, onDismiss: () -> Unit) {
                             modifier = Modifier.weight(1f),
                         )
                         IconButton(onClick = doCopy) {
-                            Icon(Icons.Outlined.ContentCopy, contentDescription = "复制")
+                            Icon(Ym1rIcons.Copy, contentDescription = "复制")
                         }
                     }
                 }

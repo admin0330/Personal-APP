@@ -21,6 +21,53 @@ const (
 	testPassword = "app-password"
 )
 
+func TestCanceledRequestClosesStalledIMAPConnection(t *testing.T) {
+	for _, byTimeout := range []bool{false, true} {
+		t.Run(fmt.Sprintf("timeout=%t", byTimeout), func(t *testing.T) {
+			clientConn, serverConn := net.Pipe()
+			defer serverConn.Close()
+			defer clientConn.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			timeout := 5 * time.Second
+			if byTimeout {
+				timeout = 40 * time.Millisecond
+			}
+			dialed := make(chan struct{})
+			client := New(Config{Timeout: timeout, DialFunc: func(context.Context, string, int, string) (net.Conn, error) {
+				close(dialed)
+				return clientConn, nil
+			}})
+			done := make(chan error, 1)
+			go func() {
+				_, err := client.List(ctx, testCred(), mailer.ListOptions{Folder: mailer.FolderInbox, Top: 1})
+				done <- err
+			}()
+			<-dialed
+			if !byTimeout {
+				cancel()
+			}
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("stalled connection unexpectedly succeeded")
+				}
+				want := mailer.ErrKindCanceled
+				if byTimeout {
+					want = mailer.ErrKindNetwork
+				}
+				if mailer.KindOf(err) != want {
+					t.Fatalf("cancellation misclassified: %v", err)
+				}
+			case <-time.After(time.Second):
+				_ = serverConn.Close()
+				<-done
+				t.Fatal("request stayed blocked after cancellation/deadline")
+			}
+		})
+	}
+}
+
 // testServer 是一个进程内的真 IMAP 服务器。
 //
 // 用真服务器而不是手写的协议桩：SELECT / FETCH / STORE / EXPUNGE 的交互细节

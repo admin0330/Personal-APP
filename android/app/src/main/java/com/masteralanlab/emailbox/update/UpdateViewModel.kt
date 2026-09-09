@@ -25,8 +25,6 @@ data class UpdateUiState(
     val apk: File? = null,
     /** 用户主动点「检查更新」时为 true，静默检查失败不弹错误。 */
     val manual: Boolean = false,
-    /** 用户手动忽略过该版本后不再提示。 */
-    val dismissedCode: Int = 0,
 )
 
 class UpdateViewModel : ViewModel() {
@@ -36,7 +34,7 @@ class UpdateViewModel : ViewModel() {
 
     private var job: Job? = null
 
-    /** 启动时静默检查；距离上次检查不足 6 小时则跳过（强制检查除外）。 */
+    /** 启动时静默检查；每次冷启动都按当前 versionCode 检查。 */
     fun checkOnStart() {
         // 个人应用：每次冷启动都检查。一次清单 GET 的代价可以忽略，
         // 6 小时节流换来的是「发了新版本 App 却不吭声」。
@@ -73,7 +71,6 @@ class UpdateViewModel : ViewModel() {
     }
 
     fun dismiss(info: UpdateInfo) {
-        Prefs.skippedVersion = info.versionCode
         _state.update { it.copy(info = null, error = null, phase = UpdatePhase.Idle) }
     }
 

@@ -76,9 +76,18 @@ fun emailAddress(from: String): String {
     return if (start >= 0 && end > start) s.substring(start + 1, end).trim() else s
 }
 
-/** 列表头像用：取邮箱首字母。 */
-fun initialOf(from: String): String {
-    val text = displayName(from)
-    val ch = text.firstOrNull { it.isLetterOrDigit() }
-    return (ch ?: '?').uppercaseChar().toString()
+/**
+ * 列表与账号头像提取：
+ * 自动获取邮箱名首字母大写，如果是数字则保持为数字。
+ */
+fun accountInitialOf(from: String): String {
+    val clean = emailAddress(from).ifBlank { from }.trim()
+    val username = clean.substringBefore('@').trim().ifBlank { clean }
+    val ch = username.firstOrNull { it.isLetterOrDigit() }
+        ?: clean.firstOrNull { it.isLetterOrDigit() }
+        ?: return "?"
+    return if (ch.isDigit()) ch.toString() else ch.uppercaseChar().toString()
 }
+
+/** 列表头像用：取邮箱首字母大写或数字。 */
+fun initialOf(from: String): String = accountInitialOf(from)

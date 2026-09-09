@@ -64,6 +64,20 @@ data class InviteRegisterRequest(
 )
 
 @Serializable
+data class CreateInviteRequest(val valid_hours: Int = 24)
+
+/** 明文 code 只在创建邀请码的响应中返回一次。 */
+@Serializable
+data class SignupInviteCreated(
+    val id: String = "",
+    val created_by: String = "",
+    val expires_at: String = "",
+    val redeemed_at: String? = null,
+    val created_at: String = "",
+    val code: String = "",
+)
+
+@Serializable
 data class UserResp(
     val id: String = "",
     val username: String = "",
@@ -154,6 +168,7 @@ data class Note(
     val is_pinned: Boolean = false,
     val created_at: String = "",
     val updated_at: String = "",
+    val is_completed: Boolean = false,
 )
 
 @Serializable
@@ -161,6 +176,7 @@ data class CreateNoteRequest(
     val title: String,
     val content: String,
     val is_pinned: Boolean = false,
+    val is_completed: Boolean = false,
 )
 
 @Serializable
@@ -168,6 +184,7 @@ data class UpdateNoteRequest(
     val title: String? = null,
     val content: String? = null,
     val is_pinned: Boolean? = null,
+    val is_completed: Boolean? = null,
 )
 
 // ---------- 同步健康 ----------
@@ -775,6 +792,7 @@ data class UpdateInfo(
     val versionName: String = "",
     val downloadUrl: String = "",
     val apkUrl: String = "",
+    val fallbackUrl: String = "",
     val sha256: String = "",
     val size: Long = 0,
     val mandatory: Boolean = false,
@@ -784,5 +802,10 @@ data class UpdateInfo(
 ) {
     /** downloadUrl 为空时回落到 apkUrl，兼容两种清单写法。 */
     val url: String get() = downloadUrl.ifBlank { apkUrl }
+    val backupUrl: String get() = fallbackUrl.ifBlank {
+        if (url.contains("img.example.com")) url.replace("img.example.com", "example.com")
+        else if (url.contains("example.com")) url.replace("example.com", "img.example.com")
+        else ""
+    }
     val isMandatory: Boolean get() = mandatory || forceUpdate
 }

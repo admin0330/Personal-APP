@@ -2,6 +2,9 @@ package com.masteralanlab.emailbox.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -20,7 +23,7 @@ import javax.crypto.spec.GCMParameterSpec
 object Prefs {
 
     private const val FILE = "emailbox"
-    const val DEFAULT_SERVER = "https://ym3861.cn/emailbox"
+    const val DEFAULT_SERVER = "https://example.com/emailbox"
 
     private const val K_SERVER = "server_url"
     private const val K_SESSION = "session_token"
@@ -33,8 +36,11 @@ object Prefs {
     private const val K_USERNAME = "username"
     private const val K_USER_EMAIL = "user_email"
     private const val K_PLATFORM_ROLE = "platform_role"
+    private const val K_AVATAR_PATH = "avatar_path"
     private const val K_THEME = "theme_mode"
+    private const val K_DESIGN_STYLE = "design_style"
     private const val K_DYNAMIC = "dynamic_color"
+    private const val K_REDUCE_TRANSPARENCY = "reduce_transparency"
     private const val K_BLOCK_IMAGES = "block_remote_images"
     private const val K_ACCOUNT_CATEGORY = "account_category"
     private const val K_PULL_MODE = "pull_mode"
@@ -45,10 +51,12 @@ object Prefs {
     private const val K_CACHE_DAYS = "cache_days"
     private const val K_NAV_ORDER = "nav_order"
     private const val K_CATEGORY_RULES = "category_rules"
+    private const val K_LEDGER_CATEGORY_ENABLED = "ledger_category_enabled"
+    private const val K_LEDGER_DEFAULT_UNPOSTED = "ledger_default_unposted"
     private const val K_LAST_CHECK = "last_update_check"
-    private const val K_SKIPPED_VERSION = "skipped_version"
     private const val API_KEY_ALIAS = "emailbox_api_key"
     private const val KEYSTORE = "AndroidKeyStore"
+    private val DEFAULT_NAV_ORDER = listOf("mail", "overview", "ledger", "notes")
 
     const val ACCOUNT_CATEGORY_OFF = "off"
     const val ACCOUNT_CATEGORY_DOMAIN = "domain"
@@ -62,6 +70,11 @@ object Prefs {
     fun init(context: Context) {
         appContext = context.applicationContext
         sp = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        _avatarPathState = sp.getString(K_AVATAR_PATH, null)
+        _blockRemoteImagesState = sp.getBoolean(K_BLOCK_IMAGES, true)
+        _accountCategoryState = sp.getString(K_ACCOUNT_CATEGORY, ACCOUNT_CATEGORY_OFF) ?: ACCOUNT_CATEGORY_OFF
+        _showAccountDomainState = sp.getBoolean(K_SHOW_ACCOUNT_DOMAIN, true)
+        _pullModeState = sp.getString(K_PULL_MODE, PULL_MODE_SERVER) ?: PULL_MODE_SERVER
         migrateLegacyApiKey()
     }
 
@@ -76,7 +89,14 @@ object Prefs {
         set(v) = sp.edit().putString(K_SESSION, v).apply()
 
     var apiKey: String?
-        get() = sp.getString(K_API_KEY_CIPHERTEXT, null)?.let(::decryptApiKey)
+        get() = sp.getString(K_API_KEY_CIPHERTEXT, null)?.let { ciphertext ->
+            runCatching { decryptApiKey(ciphertext) }.getOrElse {
+                // Keystore 恢复、系统备份还原或卸载重装后，旧密文可能无法解密。
+                // 只清掉损坏凭据并回到登录页，不能让 App 在启动阶段崩溃。
+                recoverCorruptApiKey()
+                null
+            }
+        }
         set(v) {
             val edit = sp.edit().remove(K_API_KEY_LEGACY)
             if (v.isNullOrBlank()) {
@@ -118,39 +138,134 @@ object Prefs {
         get() = sp.getString(K_PLATFORM_ROLE, null)
         set(v) = sp.edit().putString(K_PLATFORM_ROLE, v).apply()
 
+    private var _avatarPathState by mutableStateOf<String?>(null)
+
+    /** 头像只保存在本机应用私有目录，不写入服务器。通过 Compose mutableStateOf 实现全应用即时响应。 */
+    var avatarPath: String?
+        get() {
+            if (_avatarPathState == null && ::sp.isInitialized) {
+                _avatarPathState = sp.getString(K_AVATAR_PATH, null)
+            }
+            return _avatarPathState
+        }
+        set(v) {
+            val edit = sp.edit()
+            if (v.isNullOrBlank()) edit.remove(K_AVATAR_PATH) else edit.putString(K_AVATAR_PATH, v)
+            edit.apply()
+            _avatarPathState = v
+        }
+
+    private const val K_ACCOUNT_AVATAR_PREFIX = "account_avatar_"
+    private var _accountAvatarEpoch by mutableStateOf(0)
+
+    /** 获取账号头像，默认实时继承并同步用户修改的个人资料头像 avatarPath */
+    fun getAccountAvatar(accountId: String): String? {
+        @Suppress("UNUSED_VARIABLE")
+        val dummy = _accountAvatarEpoch
+        if (accountId.isBlank()) return avatarPath
+        val key = "$K_ACCOUNT_AVATAR_PREFIX$accountId"
+        val custom = if (::sp.isInitialized) sp.getString(key, null) else null
+        return custom ?: avatarPath
+    }
+
+    fun setAccountAvatar(accountId: String, path: String?) {
+        if (accountId.isBlank()) return
+        val key = "$K_ACCOUNT_AVATAR_PREFIX$accountId"
+        val edit = sp.edit()
+        if (path.isNullOrBlank()) edit.remove(key) else edit.putString(key, path)
+        edit.apply()
+        _accountAvatarEpoch++
+    }
+
     val isPlatformAdmin: Boolean get() = platformRole == "admin"
 
-    // ---- 外观 ----
+    // ---- 外观与设计体系 A/B ----
     const val THEME_SYSTEM = "system"
     const val THEME_LIGHT = "light"
     const val THEME_DARK = "dark"
+
+    const val STYLE_APPLE = "apple" // iOS 27 Beta 原生
+    const val STYLE_CLAUDE = "claude" // Claude 经典陶土
 
     var themeMode: String
         get() = sp.getString(K_THEME, THEME_SYSTEM) ?: THEME_SYSTEM
         set(v) = sp.edit().putString(K_THEME, v).apply()
 
+    var designStyle: String
+        get() = sp.getString(K_DESIGN_STYLE, STYLE_APPLE) ?: STYLE_APPLE
+        set(v) = sp.edit().putString(K_DESIGN_STYLE, v).apply()
+
     var dynamicColor: Boolean
         get() = sp.getBoolean(K_DYNAMIC, true)
         set(v) = sp.edit().putBoolean(K_DYNAMIC, v).apply()
 
+    var reduceTransparency: Boolean
+        get() = sp.getBoolean(K_REDUCE_TRANSPARENCY, false)
+        set(v) = sp.edit().putBoolean(K_REDUCE_TRANSPARENCY, v).apply()
+
+    private var _blockRemoteImagesState by mutableStateOf<Boolean?>(null)
+
     // ---- 邮件正文 ----
     var blockRemoteImages: Boolean
-        get() = sp.getBoolean(K_BLOCK_IMAGES, true)
-        set(v) = sp.edit().putBoolean(K_BLOCK_IMAGES, v).apply()
+        get() {
+            if (_blockRemoteImagesState == null && ::sp.isInitialized) {
+                _blockRemoteImagesState = sp.getBoolean(K_BLOCK_IMAGES, true)
+            }
+            return _blockRemoteImagesState ?: (if (::sp.isInitialized) sp.getBoolean(K_BLOCK_IMAGES, true) else true)
+        }
+        set(v) {
+            sp.edit().putBoolean(K_BLOCK_IMAGES, v).apply()
+            _blockRemoteImagesState = v
+        }
+
+    private var _accountCategoryState by mutableStateOf<String?>(null)
 
     // ---- 账号展示与拉取 ----
     var accountCategory: String
-        get() = sp.getString(K_ACCOUNT_CATEGORY, ACCOUNT_CATEGORY_OFF) ?: ACCOUNT_CATEGORY_OFF
-        set(v) = sp.edit().putString(K_ACCOUNT_CATEGORY, v).apply()
+        get() {
+            if (_accountCategoryState == null && ::sp.isInitialized) {
+                _accountCategoryState = sp.getString(K_ACCOUNT_CATEGORY, ACCOUNT_CATEGORY_OFF) ?: ACCOUNT_CATEGORY_OFF
+            }
+            return _accountCategoryState ?: (if (::sp.isInitialized) sp.getString(K_ACCOUNT_CATEGORY, ACCOUNT_CATEGORY_OFF) ?: ACCOUNT_CATEGORY_OFF else ACCOUNT_CATEGORY_OFF)
+        }
+        set(v) {
+            sp.edit().putString(K_ACCOUNT_CATEGORY, v).apply()
+            _accountCategoryState = v
+        }
+
+    private var _showAccountDomainState by mutableStateOf<Boolean?>(null)
 
     /** 按域名分类时是否在行标题显示完整邮箱；关闭则只显示 @ 之前的本地部分。 */
     var showAccountDomain: Boolean
-        get() = sp.getBoolean(K_SHOW_ACCOUNT_DOMAIN, true)
-        set(v) = sp.edit().putBoolean(K_SHOW_ACCOUNT_DOMAIN, v).apply()
+        get() {
+            if (_showAccountDomainState == null && ::sp.isInitialized) {
+                _showAccountDomainState = sp.getBoolean(K_SHOW_ACCOUNT_DOMAIN, true)
+            }
+            return _showAccountDomainState ?: (if (::sp.isInitialized) sp.getBoolean(K_SHOW_ACCOUNT_DOMAIN, true) else true)
+        }
+        set(v) {
+            sp.edit().putBoolean(K_SHOW_ACCOUNT_DOMAIN, v).apply()
+            _showAccountDomainState = v
+        }
 
+    private var _pullModeState by mutableStateOf(PULL_MODE_SERVER)
     var pullMode: String
-        get() = sp.getString(K_PULL_MODE, PULL_MODE_SERVER) ?: PULL_MODE_SERVER
-        set(v) = sp.edit().putString(K_PULL_MODE, v).apply()
+        get() = _pullModeState
+        set(v) {
+            sp.edit().putString(K_PULL_MODE, v).apply()
+            _pullModeState = v
+        }
+
+    // ---- 记账分类 ----
+    /** 新建账目是否显示消费分类；关闭时新建账目强制为未入账。 */
+    var ledgerCategoryEnabled: Boolean
+        get() = sp.getBoolean(K_LEDGER_CATEGORY_ENABLED, true)
+        set(v) = sp.edit().putBoolean(K_LEDGER_CATEGORY_ENABLED, v).apply()
+
+    /** 消费分类开启时，新建账目是否默认未入账。 */
+    var ledgerDefaultUnposted: Boolean
+        get() = sp.getBoolean(K_LEDGER_DEFAULT_UNPOSTED, false)
+        set(v) = sp.edit().putBoolean(K_LEDGER_DEFAULT_UNPOSTED, v).apply()
 
     // ---- App 解锁 ----
     var biometricUnlockEnabled: Boolean
@@ -167,13 +282,8 @@ object Prefs {
         set(v) = sp.edit().putInt(K_CACHE_DAYS, v.coerceIn(7, 90)).apply()
 
     var navOrder: List<String>
-        get() {
-            val known = listOf("mail", "ledger", "notes")
-            val saved = sp.getString(K_NAV_ORDER, null)?.split(',').orEmpty()
-                .map { if (it == "tokens") "notes" else it }
-            return (saved.filter { it in known } + known).distinct()
-        }
-        set(v) = sp.edit().putString(K_NAV_ORDER, v.distinct().joinToString(",")).apply()
+        get() = normalizeNavOrder(sp.getString(K_NAV_ORDER, null)?.split(',').orEmpty())
+        set(v) = sp.edit().putString(K_NAV_ORDER, normalizeNavOrder(v).joinToString(",")).apply()
 
     fun categoryOverride(from: String): String? {
         val sender = senderAddress(from)
@@ -226,10 +336,6 @@ object Prefs {
         get() = sp.getLong(K_LAST_CHECK, 0L)
         set(v) = sp.edit().putLong(K_LAST_CHECK, v).apply()
 
-    var skippedVersion: Int
-        get() = sp.getInt(K_SKIPPED_VERSION, 0)
-        set(v) = sp.edit().putInt(K_SKIPPED_VERSION, v).apply()
-
     fun rememberSession(auth: com.masteralanlab.emailbox.data.remote.AuthResponse) {
         sp.edit()
             .putString(K_USER_ID, auth.user.id)
@@ -249,6 +355,7 @@ object Prefs {
             .remove(K_USERNAME)
             .remove(K_USER_EMAIL)
             .remove(K_PLATFORM_ROLE)
+            .remove(K_AVATAR_PATH)
             .remove(K_TENANT)
             .remove(K_TENANT_NAME)
             .putBoolean(K_BIOMETRIC_UNLOCK, false)
@@ -258,13 +365,47 @@ object Prefs {
             // 换账号登录时永远不会看到上一个账号的数据残留
             appContext?.let { ctx ->
                 runCatching {
-                    File(ctx.cacheDir, "accounts_cache.json").delete()
-                    File(ctx.cacheDir, "tokens_cache.json").delete()
+                    ctx.filesDir.listFiles()
+                        ?.filter {
+                            it.name.startsWith(PROFILE_AVATAR_PREFIX) ||
+                                it.name == PROFILE_AVATAR_LEGACY_FILE
+                        }
+                        ?.forEach { it.delete() }
+                    // cacheDir 只存临时/展示缓存（账号、令牌、附件、更新包等），退出时整体清理。
+                    ctx.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
                     ctx.noBackupFilesDir.listFiles()?.forEach { f ->
-                        if (f.name.startsWith("ledger-cache-")) f.delete()
+                        if (f.name.startsWith("ledger-cache-") || f.name.startsWith("notes-cache-") || f.name.endsWith(".tmp")) {
+                            f.delete()
+                        }
                     }
                 }
             }
+            // 这些缓存分别由独立存储对象维护，退出时必须一起销毁，避免换账号后复用旧数据。
+            runCatching {
+                NotesLocalStore.clearAll()
+                SecureMailCache.clear()
+                MailPreloadCache.clear()
+            }
+    }
+
+    private fun recoverCorruptApiKey() {
+        sp.edit()
+            .remove(K_API_KEY_CIPHERTEXT)
+            .remove(K_API_KEY_LEGACY)
+            .remove(K_SESSION)
+            .remove(K_USER_ID)
+            .remove(K_USERNAME)
+            .remove(K_USER_EMAIL)
+            .remove(K_PLATFORM_ROLE)
+            .remove(K_TENANT)
+            .remove(K_TENANT_NAME)
+            .remove(K_AVATAR_PATH)
+            .putBoolean(K_BIOMETRIC_UNLOCK, false)
+            .putBoolean(K_API_KEY_MODE, false)
+            .apply()
+        runCatching {
+            KeyStore.getInstance(KEYSTORE).apply { load(null) }.deleteEntry(API_KEY_ALIAS)
+        }
     }
 
     /** 初始版本把 API Key 写进了明文 preferences；升级时只迁移一次并立即删掉旧字段。 */
@@ -274,8 +415,9 @@ object Prefs {
             sp.edit().remove(K_API_KEY_LEGACY).apply()
             return
         }
-        apiKey = legacy
-        check(sp.edit().remove(K_API_KEY_LEGACY).commit()) { "无法清理旧版 API Key" }
+        runCatching { apiKey = legacy }
+            .onFailure { recoverCorruptApiKey() }
+        sp.edit().remove(K_API_KEY_LEGACY).apply()
     }
 
     private fun key(): SecretKey {
@@ -318,4 +460,6 @@ object Prefs {
 
     private const val GCM_IV_BYTES = 12
     private const val GCM_TAG_BITS = 128
+    const val PROFILE_AVATAR_PREFIX = "profile_avatar_"
+    const val PROFILE_AVATAR_LEGACY_FILE = "profile_avatar"
 }

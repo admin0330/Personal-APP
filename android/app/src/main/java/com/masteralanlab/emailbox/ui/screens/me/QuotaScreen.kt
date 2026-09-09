@@ -1,5 +1,6 @@
 package com.masteralanlab.emailbox.ui.screens.me
 
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,18 +12,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -55,6 +51,8 @@ import com.masteralanlab.emailbox.ui.components.AppTopBar
 import com.masteralanlab.emailbox.ui.components.DropdownField
 import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductField
+import com.masteralanlab.emailbox.ui.components.ProductSurface
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -264,7 +262,7 @@ fun QuotaScreen(onBack: () -> Unit) {
 @Composable
 private fun PlanCard(usage: QuotaUsage) {
     val limits = usage.limits
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    ProductSurface(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(Modifier.width(4.dp))
@@ -314,7 +312,7 @@ private fun PlanCard(usage: QuotaUsage) {
 private fun UsageCard(usage: QuotaUsage) {
     val limits = usage.limits
     val used = usage.usage
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    ProductSurface(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
                 "用量",
@@ -409,11 +407,11 @@ private fun AdjustQuotaCard(
         plans.forEach { add(it.id to "${it.name}（${it.code}）") }
     }
 
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    ProductSurface(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    Icons.Outlined.AdminPanelSettings,
+                    Ym1rIcons.Shield,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.height(20.dp),
@@ -456,28 +454,27 @@ private fun AdjustQuotaCard(
             )
             Spacer(Modifier.height(10.dp))
 
-            OutlinedTextField(
+            ProductField(
                 value = note,
                 onValueChange = { note = it; formError = null },
-                label = { Text("调整原因（必填）") },
+                label = "调整原因（必填）",
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = false,
                 minLines = 2,
-                maxLines = 4,
-                supportingText = { Text("会写入审计日志，不能为空") },
+                supporting = "会写入审计日志，不能为空",
             )
 
             if (formError != null) {
                 Spacer(Modifier.height(10.dp))
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         formError ?: "",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     )
                 }
@@ -531,13 +528,13 @@ private fun LimitOverrideField(
     value: String,
     onValueChange: (String) -> Unit,
 ) {
-    OutlinedTextField(
+    ProductField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text(label) },
+        label = label,
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        supportingText = { Text("留空沿用套餐值，-1 表示不限") },
+        supporting = "留空沿用套餐值，-1 表示不限",
     )
 }

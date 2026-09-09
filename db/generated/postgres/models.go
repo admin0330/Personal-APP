@@ -173,13 +173,14 @@ type MailRefreshLog struct {
 }
 
 type Note struct {
-	ID        string
-	TenantID  string
-	Title     string
-	Content   string
-	IsPinned  bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          string
+	TenantID    string
+	Title       string
+	Content     string
+	IsPinned    bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	IsCompleted bool
 }
 
 type OauthAuthorization struct {

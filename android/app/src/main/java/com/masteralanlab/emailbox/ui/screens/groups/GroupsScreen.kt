@@ -16,15 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ArrowDownward
-import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -33,7 +24,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -48,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +62,7 @@ import com.masteralanlab.emailbox.ui.components.EmptyBox
 import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.LabeledField
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductField
 import com.masteralanlab.emailbox.ui.components.groupTint
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -173,15 +165,19 @@ fun GroupsScreen(onNavigate: (String) -> Unit) {
                 title = "分组",
                 actions = {
                     IconButton(onClick = { vm.load() }) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
+                        Icon(Ym1rIcons.RefreshCw, contentDescription = "刷新")
                     }
                 },
             )
         },
         floatingActionButton = {
             if (!readOnly) {
-                FloatingActionButton(onClick = { onNavigate(com.masteralanlab.emailbox.ui.nav.Route.groupEdit()) }) {
-                    Icon(Icons.Outlined.Add, contentDescription = "新建分组")
+                FloatingActionButton(
+                    onClick = { onNavigate(com.masteralanlab.emailbox.ui.nav.Route.groupEdit()) },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Icon(Ym1rIcons.Plus, contentDescription = "新建分组")
                 }
             }
         },
@@ -190,7 +186,7 @@ fun GroupsScreen(onNavigate: (String) -> Unit) {
             when {
                 state.loading -> LoadingBox()
                 state.error != null && state.groups.isEmpty() -> ErrorBox(state.error!!) { vm.load() }
-                state.groups.isEmpty() -> EmptyBox("还没有分组", Icons.Outlined.Folder) {
+                state.groups.isEmpty() -> EmptyBox("还没有分组", Ym1rIcons.Folder) {
                     if (!readOnly) {
                         TextButton(onClick = { onNavigate(com.masteralanlab.emailbox.ui.nav.Route.groupEdit()) }) {
                             Text("新建分组")
@@ -264,7 +260,7 @@ private fun GroupRow(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    Icons.Outlined.Folder,
+                    Ym1rIcons.Folder,
                     null,
                     Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.surface,
@@ -293,7 +289,7 @@ private fun GroupRow(
                 if (!group.proxy_url_masked.isNullOrBlank()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Outlined.Shield,
+                            Ym1rIcons.Shield,
                             null,
                             Modifier.size(14.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -323,14 +319,14 @@ private fun GroupRow(
             if (!readOnly) {
                 Row {
                     IconButton(onClick = onUp, enabled = canUp) {
-                        Icon(Icons.Outlined.ArrowUpward, contentDescription = "上移")
+                        Icon(Ym1rIcons.ArrowUp, contentDescription = "上移")
                     }
                     IconButton(onClick = onDown, enabled = canDown) {
-                        Icon(Icons.Outlined.ArrowDownward, contentDescription = "下移")
+                        Icon(Ym1rIcons.ArrowDown, contentDescription = "下移")
                     }
-                    IconButton(onClick = onEdit) { Icon(Icons.Outlined.Edit, contentDescription = "编辑") }
+                    IconButton(onClick = onEdit) { Icon(Ym1rIcons.Pencil, contentDescription = "编辑") }
                     IconButton(onClick = onDelete, enabled = !group.is_system) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "删除")
+                        Icon(Ym1rIcons.Trash2, contentDescription = "删除")
                     }
                 }
             }
@@ -424,11 +420,11 @@ fun GroupEditScreen(groupId: String?, onBack: () -> Unit, onSaved: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(proxy, { proxy = it }, label = { Text("主代理") }, modifier = Modifier.fillMaxWidth())
+            ProductField(proxy, { proxy = it }, label = "主代理", modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(fb1, { fb1 = it }, label = { Text("备用代理 1") }, modifier = Modifier.fillMaxWidth())
+            ProductField(fb1, { fb1 = it }, label = "备用代理 1", modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(fb2, { fb2 = it }, label = { Text("备用代理 2") }, modifier = Modifier.fillMaxWidth())
+            ProductField(fb2, { fb2 = it }, label = "备用代理 2", modifier = Modifier.fillMaxWidth())
             if (groupId != null) {
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {

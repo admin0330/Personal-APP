@@ -30,7 +30,7 @@ fun normalizeServerUrl(raw: String): String {
     require(url.query == null && url.fragment == null) { "服务器地址不能包含查询参数" }
 
     val path = url.encodedPath.trimEnd('/')
-    val normalizedPath = if (url.host.equals("ym3861.cn", ignoreCase = true) && path.isEmpty()) {
+    val normalizedPath = if (url.host.equals("example.com", ignoreCase = true) && path.isEmpty()) {
         "/emailbox"
     } else {
         path
@@ -153,11 +153,12 @@ object ApiClient {
     @Volatile
     private var cachedClient: OkHttpClient? = null
 
-    /** 应用内更新等场景需要绕过会话 Cookie 的干净客户端。 */
+    /** 应用内更新等场景需要绕过会话 Cookie 的干净客户端，配备境内高速源站 DNS 智能优先直连。 */
     fun plainClient(): OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
+            .retryOnConnectionFailure(true)
+            .dns(OriginAcceleratedDns)
             .build()
 
     fun okHttp(): OkHttpClient {
@@ -238,4 +239,11 @@ object ApiClient {
 /** 日志开关，release 关闭。 */
 internal object BuildConfigDebug {
     val enabled: Boolean get() = false
+}
+
+
+/** Public builds resolve hosts using the system DNS configuration. */
+object OriginAcceleratedDns : okhttp3.Dns {
+    override fun lookup(hostname: String): List<java.net.InetAddress> =
+        okhttp3.Dns.SYSTEM.lookup(hostname)
 }

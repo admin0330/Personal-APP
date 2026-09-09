@@ -1,5 +1,6 @@
 package com.masteralanlab.emailbox.ui.screens.me
 
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -15,22 +16,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -60,6 +53,7 @@ import com.masteralanlab.emailbox.ui.components.AppTopBar
 import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.InfoRow
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductSurface
 import com.masteralanlab.emailbox.util.formatFullTime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -227,7 +221,7 @@ fun ApiKeyScreen(onBack: () -> Unit) {
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
-            icon = { Icon(Icons.Outlined.Refresh, contentDescription = null) },
+            icon = { Icon(Ym1rIcons.RefreshCw, contentDescription = null) },
             title = { Text(if (keyView == null) "生成 API Key" else "重置 API Key") },
             text = {
                 Text(
@@ -258,13 +252,13 @@ fun ApiKeyScreen(onBack: () -> Unit) {
 
 @Composable
 private fun NotGeneratedCard(busy: Boolean, onGenerate: () -> Unit) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    ProductSurface(modifier = Modifier.fillMaxWidth()) {
         Column(
             Modifier.fillMaxWidth().padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
-                Icons.Outlined.Key,
+                Ym1rIcons.Key,
                 contentDescription = null,
                 modifier = Modifier.height(48.dp),
                 tint = MaterialTheme.colorScheme.outline,
@@ -296,7 +290,7 @@ private fun KeyCard(
     onReset: () -> Unit,
 ) {
     val token = view?.token.orEmpty()
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    ProductSurface(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
                 "当前 API Key",
@@ -305,7 +299,7 @@ private fun KeyCard(
             )
             Spacer(Modifier.height(12.dp))
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -321,7 +315,7 @@ private fun KeyCard(
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth()) {
                 TextButton(onClick = { onCopy(token) }) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+                    Icon(Ym1rIcons.Copy, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
                     Text("复制")
                 }
@@ -333,7 +327,7 @@ private fun KeyCard(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
                 ) {
-                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                    Icon(Ym1rIcons.RefreshCw, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
                     Text(if (busy) "处理中…" else "重置")
                 }
@@ -347,10 +341,8 @@ private fun KeyCard(
 
 @Composable
 private fun UsageCard() {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
+    ProductSurface(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {

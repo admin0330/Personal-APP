@@ -1,89 +1,105 @@
-# Ym1r · Personal-APP
+# Ym1r · Personal APP
 
-个人自托管的邮箱聚合与记账应用。由三部分组成：
+**简体中文** | [English](README.en.md)
 
-- **Go 后端**：多租户邮箱托管（Gmail / Outlook / QQ / 163 等），统一收信、令牌刷新、代理与配额
-- **React Web**：网页管理端
-- **Android 客户端（Ym1r）**：Material You 个人客户端——收件、笔记、记账、令牌管理与桌面组件
+Ym1r 是基于 Emailbox 持续开发的个人应用，包含 Android 原生客户端、Go 后端和 React Web 管理界面，将邮件聚合、笔记、记账与账号管理放在同一套系统中。
 
-> 本项目派生自开源项目 [MasterAlanLab/emailbox](https://github.com/MasterAlanLab/emailbox)，在此基础上面向个人使用做了大量定制。
+当前公开源码版本：**1.5.2 / versionCode 79**。这是脱敏后的开发源码快照，源码同步不代表已经发布对应稳定版 APK，也不代表完成了该版本的真机验收。
 
-## 核心设计
+## 主要功能
 
-**服务器取信、客户端只读。**
+- 邮件：多账号与分组、列表与正文、附件、搜索、OAuth 重新授权及同步状态。
+- 本地优先：笔记、记账与邮件缓存；敏感缓存和凭据按各模块的安全策略处理。
+- Android 界面：Jetpack Compose、清透与经典主题、手势侧栏、液态玻璃 Dock、滚动数字动效。
+- 安全边界：租户隔离、权限校验、操作审计、凭据加密与邮件正文隔离渲染。
+- 最新邮件改动：取消过期请求、优先显示缓存与正文、减少批量正文预取、限制后台轮询并发及中断超时 IMAP 连接。
 
-```text
-Gmail / Outlook / 163 …
-      ↓ 服务器侧代理统一出网
-Emailbox 后端（凭据与邮件数据的唯一事实源）
-      ↓ HTTPS（只读接口）
-Android App / Web
+## 项目结构
+
+| 路径 | 内容 |
+| --- | --- |
+| `android/` | Kotlin / Jetpack Compose 客户端及测试 |
+| `api/`、`pkg/`、`configs/` | Go / Echo 后端、业务逻辑与配置 |
+| `db/` | SQLite / PostgreSQL 迁移、查询与 sqlc 生成代码 |
+| `web/` | React 19 / TypeScript / Vite 管理界面 |
+| `docs/` | 配置说明与历史设计记录；当前行为以源码为准 |
+| `scripts/` | 构建、代码检查与密钥生成工具 |
+
+## 本地启动
+
+准备 Go（版本见 `go.mod`）、Bun（版本见 `web/package.json`），然后：
+
+```sh
+git clone https://github.com/admin0330/Personal-APP.git
+cd Personal-APP
+cp .env.example .env
+go run ./scripts/genkey
 ```
 
-- 邮箱凭据、Refresh Token 与代理配置**只存在服务端**，客户端不直连任何邮件服务商
-- 客户端通过只读 API 或一次性短码兑换的设备令牌访问，权限最小化、可随时撤销
-- 邮件正文在客户端沙箱渲染，默认阻断远程图片（防追踪像素）
-- 记账采用「邮件识别 → 待确认 → 手动入账」流程，未入账账单不计入结余
-- 离线数据本地加密缓存，登录态切换即清空
+将生成的密钥填入本地 `.env` 的 `ENCRYPTION_KEY`，自行设置管理员用户名和初始密码。仓库不提供可用的管理员密码。然后分别启动后端与 Web：
 
-## 功能一览
+```sh
+go run .
+```
 
-- **邮箱**：多服务商聚合收件箱、域名分类、验证码提取、全局搜索、附件下载（单个/打包 ZIP）
-- **令牌**：批量令牌刷新任务、SSE 实时进度、断线重连、刷新统计与日志
-- **记账**：快速记一笔（可自定义记账时间）、邮件账单识别为待确认建议、已入账/未入账管理、月度汇总
-- **笔记**：轻量个人笔记
-- **同步健康中心**：服务器代理与同步状态可视、多节点切换
-- **应用内更新**：多更新通道（稳定/测试）、断点续传、SHA-256 校验
-- **安全**：指纹/设备密码解锁、Android Keystore 加密缓存、凭据永不下发客户端
+```sh
+cd web
+bun install --frozen-lockfile
+bun run dev
+```
 
-## 技术栈
+默认后端端口为 `1323`，Web 开发端口为 `5173`，Vite 将 `/api` 转发到本地后端。Windows PowerShell 可使用 `Copy-Item .env.example .env` 复制配置。
 
-| 部分 | 技术 |
-|---|---|
-| 后端 | Go 1.25+、Echo v5、sqlc + database/sql（SQLite / PostgreSQL 双引擎）、log/slog、go-imap、Microsoft Graph |
-| Web | React 19、TypeScript、Vite、Bun、Tailwind CSS v4 |
-| Android | Kotlin 2.0、Jetpack Compose、Material 3（Material You 动态取色）、Retrofit + OkHttp、kotlinx.serialization |
+生产部署需设置 `APP_ENV=production`、独立加密密钥和 HTTPS Cookie 配置，并检查注册策略、反向代理与 OAuth 回调。配置说明见 [docs/configuration.md](docs/configuration.md)。`docker-compose.yml` 是本地开发示例，使用 Docker 时必须显式传入自己的环境配置。
 
-## 本地开发
+## Android 构建
 
-```bash
-# 后端 + 前端（需要 Go 1.25+ 与 Bun）
-make dev            # 后端 :1323，前端热更新
+准备 JDK 17 或更高版本（本地验证使用 JDK 21）、Android SDK Platform 37，通过 `ANDROID_HOME` 或未纳入版本控制的 `android/local.properties` 指定 SDK。
 
-# 数据库查询变更后重新生成（需要 sqlc v1.30）
-make sqlc-generate && make sqlc-verify
+此公开副本将服务域名替换为 `example.com`，并使用系统 DNS。当前登录界面使用内置服务器地址；自行部署时请先修改：
 
-# 前端单独构建
-cd web && bun install && bun run build
+- `android/app/src/main/java/com/masteralanlab/emailbox/data/Prefs.kt` 中的 `DEFAULT_SERVER`。
+- `data/remote/ApiClient.kt` 中与默认域名对应的路径规范化规则。
+- `update/UpdateManager.kt` 中的稳定版和测试版清单地址；需要自己托管更新文件。
+- `data/remote/ApiModels.kt` 中的图片域名映射（如不使用双域名，可返回原地址）。
 
-# Android（Android Studio 或命令行）
+以上后两项路径均相对于同一 `com/masteralanlab/emailbox/` 包目录；修改域名时同步更新对应单元测试。Android 连接地址要求 HTTPS。
+
+```sh
 cd android
-./gradlew :app:assembleDebug      # 调试包
-./gradlew :app:assembleRelease    # 发布包（需要自配签名）
+./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
-## 部署
+Windows 使用 `./gradlew.bat`。产物位于 `android/app/build/outputs/apk/`。正式构建使用 `:app:assembleRelease`；自己的签名配置写入未跟踪的 `android/keystore.properties`：
 
-单容器部署（前端静态文件与后端二进制打包在同一镜像内）：
-
-```bash
-docker compose up -d --build
+```properties
+storeFile=/absolute/path/to/your-release.jks
+storePassword=YOUR_PRIVATE_STORE_PASSWORD
+keyAlias=YOUR_KEY_ALIAS
+keyPassword=YOUR_PRIVATE_KEY_PASSWORD
 ```
 
-环境变量与配置项见 `.env.example` 与 `configs/`。数据库迁移在应用启动时自动执行
-（支持 SQLite 与 PostgreSQL，双引擎迁移成对提供）。
+未提供签名配置时构建脚本使用本机调试签名，不能用作正式发布签名或覆盖安装已有正式应用。发布者还应设置自己的应用 ID 与更新渠道。
 
-## 安全模型
+应用图标原图、各密度图层及单色图层均纳入源码。原图在 `android/app/src/main/assets/branding/app_icon_source.png`；生成及 APK 检查脚本位于 `android/tools/`，运行需安装 Pillow。
 
-- 所有敏感凭据经 AES-256-GCM 加密落库，接口只回传 `has_*` 布尔位，密文永不出后端
-- 写操作全量审计；导出类接口独立权限 + 审计 + 限流
-- 多租户隔离：每条业务 SQL 强制携带租户条件，跨租户访问一律 404
-- 公开注册默认关闭，新用户由已登录用户生成一次性邀请码开通
+## 检查与脱敏范围
 
-## 相关仓库
+```sh
+go test ./...
+go vet ./...
+cd web
+bun run lint
+bun run test
+bun run build
+```
 
-- 上游项目：[MasterAlanLab/emailbox](https://github.com/MasterAlanLab/emailbox)
+完整检查入口为 `make lint` 与 `make test`。PostgreSQL 对照测试需要单独配置测试数据库。
 
-## License
+本次公开快照排除了运行数据库、邮件内容、日志、截图、APK、构建缓存、签名私钥、本机 SDK 配置、真实环境变量及私人运维交接资料。服务域名使用示例值；源站 IP 定向解析已移除。此处理发生在独立公开副本中，不改变私人部署配置。请勿将生产密钥或运行数据提交到仓库。
 
-MIT — 见 [LICENSE](LICENSE)。
+## 来源与许可
+
+基于 [MasterAlanLab/emailbox](https://github.com/MasterAlanLab/emailbox) 开发，保留现有仓库的 [MIT 许可证](LICENSE)。第三方代码和资源仍遵循各自许可。
+
+液态玻璃使用 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 相关依赖；当前图标映射说明见 [android/MORPHICONS.md](android/MORPHICONS.md)（实际资源为 Lucide）。滚动数字为 Compose 实现，设计参考 [Rolling](https://rolling.kitlangton.dev/)，并非直接集成 Swift 库。

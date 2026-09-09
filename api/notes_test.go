@@ -21,11 +21,15 @@ func TestNotesLifecycleAndTenantIsolation(t *testing.T) {
 	}
 	var created struct {
 		Data struct {
-			ID string `json:"id"`
+			ID          string `json:"id"`
+			IsCompleted bool   `json:"is_completed"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(body), &created); err != nil {
 		t.Fatal(err)
+	}
+	if created.Data.IsCompleted {
+		t.Fatal("新建笔记默认不应为已完成")
 	}
 
 	status, body = do(t, e, http.MethodGet, aliceBase, alice, "")
@@ -34,9 +38,12 @@ func TestNotesLifecycleAndTenantIsolation(t *testing.T) {
 	}
 
 	status, body = do(t, e, http.MethodPatch, aliceBase+"/"+created.Data.ID, alice,
-		`{"title":"已修改","is_pinned":false}`)
+		`{"title":"已修改","is_pinned":false,"is_completed":true}`)
 	if status != http.StatusOK || !strings.Contains(body, "已修改") {
 		t.Fatalf("修改失败: %d %s", status, body)
+	}
+	if !strings.Contains(body, `"is_completed":true`) {
+		t.Fatalf("完成状态未保存: %s", body)
 	}
 
 	if status, _ = do(t, e, http.MethodPatch, bobBase+"/"+created.Data.ID, bob,

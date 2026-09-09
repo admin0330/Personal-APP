@@ -1,11 +1,18 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"emailbox/pkg/mailer"
 )
+
+func TestPasswordIMAPChannelDoesNotTouchStore(_ *testing.T) {
+	// 故意不提供数据库；密码 IMAP 成功路径不应尝试写 OAuth 通道列。
+	s := &MessageService{}
+	s.OnChannelSuccess(context.Background(), "tenant", "account", "", mailer.ChannelIMAP)
+}
 
 func TestMailNotificationIdentityAndCache(t *testing.T) {
 	previous := messageIDSet([]mailer.Message{{Folder: mailer.FolderInbox, IDMode: "uid", ID: "1"}})

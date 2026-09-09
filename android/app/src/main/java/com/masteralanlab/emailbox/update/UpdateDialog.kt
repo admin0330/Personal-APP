@@ -1,5 +1,6 @@
 package com.masteralanlab.emailbox.update
 
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,8 +10,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -23,6 +22,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import com.masteralanlab.emailbox.ui.components.RollingNumber
 import com.masteralanlab.emailbox.util.formatBytes
 
 @Composable
@@ -42,7 +43,7 @@ fun UpdateDialog(
         },
         icon = {
             Icon(
-                Icons.Outlined.SystemUpdate,
+                Ym1rIcons.Download,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
             )
@@ -100,11 +101,20 @@ fun UpdateDialog(
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Spacer(Modifier.height(6.dp))
-                        Text(
-                            "下载中 ${(state.progress * 100).toInt()}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "下载中 ",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            RollingNumber(
+                                value = (state.progress * 100).toInt().coerceIn(0, 100),
+                                suffix = "%",
+                                durationMs = 250,
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
 
                     UpdatePhase.Verifying -> {

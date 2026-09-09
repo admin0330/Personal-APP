@@ -1,24 +1,33 @@
 package com.masteralanlab.emailbox.ui.nav
 
 import android.widget.Toast
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.ui.Modifier
+import com.masteralanlab.emailbox.ui.nav.IosNavigationContainer
+import com.masteralanlab.emailbox.ui.nav.IosTransitions
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.masteralanlab.emailbox.data.Prefs
 import com.masteralanlab.emailbox.data.RefreshBus
 import com.masteralanlab.emailbox.data.SessionBus
-import com.masteralanlab.emailbox.data.remote.ApiClient
+import com.masteralanlab.emailbox.data.SessionManager
 import com.masteralanlab.emailbox.ui.screens.account.AccountEditScreen
 import com.masteralanlab.emailbox.ui.screens.account.AccountImportScreen
 import com.masteralanlab.emailbox.ui.screens.admin.AdminAuditScreen
@@ -48,6 +57,7 @@ import java.net.URLDecoder
 
 private fun dec(v: String?) = runCatching { URLDecoder.decode(v.orEmpty(), "UTF-8") }.getOrDefault(v.orEmpty())
 
+@OptIn(ExperimentalSharedTransitionApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit = {}) {
     val nav = rememberNavController()
@@ -74,7 +84,10 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
     // 新邮件通知的点击深链：已登录时直达对应邮箱的收件箱
     LaunchedEffect(pendingOpen, startDestination) {
         val open = pendingOpen ?: return@LaunchedEffect
-        if (startDestination == Route.Home && open.first.isNotBlank()) {
+        val destination = startDestination ?: return@LaunchedEffect
+        if (destination == Route.Home && open.first.isNotBlank()) {
+            // 首次 composition 中 NavHost 还没把 graph 挂到 NavController，等一帧再消费通知深链。
+            withFrameNanos { }
             nav.navigate(Route.mailbox(open.first, open.second)) { launchSingleTop = true }
         }
         onOpenConsumed()
@@ -82,9 +95,7 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
 
     LaunchedEffect(Unit) {
         SessionBus.expired.collect { reason ->
-            Prefs.clearSession()
-            ApiClient.invalidate()
-            MailNotifyService.sync(context)
+            SessionManager.clearLocal(context)
             Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
             nav.navigate(Route.Setup) {
                 popUpTo(0) { inclusive = true }
@@ -95,7 +106,24 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
 
     val destination = startDestination ?: return
 
-    NavHost(navController = nav, startDestination = destination) {
+    val currentEntry by nav.currentBackStackEntryAsState()
+    val currentRoute = currentEntry?.destination?.route
+    val canPop = currentRoute != null && currentRoute != Route.Home && currentRoute != Route.Setup
+
+    SharedTransitionLayout {
+        IosNavigationContainer(
+            navController = nav,
+            enabled = canPop,
+        ) {
+            NavHost(
+                navController = nav,
+                startDestination = destination,
+                // 纯正 iOS 页面推入/退出与 -30% 视差转场 (阻尼 0.86, 刚度 750)
+                enterTransition = { IosTransitions.PushEnter },
+                exitTransition = { IosTransitions.PushExit },
+                popEnterTransition = { IosTransitions.PopEnter },
+                popExitTransition = { IosTransitions.PopExit },
+            ) {
 
         composable(Route.Setup) {
             SetupScreen(
@@ -113,8 +141,9 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
             HomeScreen(onNavigate = { route -> nav.navigate(route) })
         }
 
-        composable(
+        iosComposable(
             Route.Mailbox,
+            onBack = { nav.popBackStack() },
             arguments = listOf(
                 navArgument("accountId") { type = NavType.StringType },
                 navArgument("email") { type = NavType.StringType },
@@ -126,6 +155,8 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
                 accountId = accountId,
                 email = email,
                 onBack = { nav.popBackStack() },
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this,
                 onOpenMessage = { msg ->
                     nav.navigate(
                         Route.messageDetail(
@@ -140,8 +171,9 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
             )
         }
 
-        composable(
+        iosComposable(
             Route.MessageDetail,
+            onBack = { nav.popBackStack() },
             arguments = listOf(
                 navArgument("accountId") { type = NavType.StringType },
                 navArgument("messageId") { type = NavType.StringType },
@@ -150,7 +182,7 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
                 navArgument("subject") { type = NavType.StringType; defaultValue = "" },
             ),
         ) { entry ->
-            val a = entry.arguments ?: return@composable
+            val a = entry.arguments ?: return@iosComposable
             MessageScreen(
                 accountId = a.getString("accountId").orEmpty(),
                 messageId = dec(a.getString("messageId")),
@@ -158,11 +190,14 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
                 idMode = a.getString("idMode") ?: "",
                 subject = dec(a.getString("subject")),
                 onBack = { nav.popBackStack() },
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this,
             )
         }
 
-        composable(
+        iosComposable(
             Route.AccountEdit,
+            onBack = { nav.popBackStack() },
             arguments = listOf(
                 navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null },
                 navArgument("groupId") { type = NavType.StringType; nullable = true; defaultValue = null },
@@ -179,8 +214,9 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
             )
         }
 
-        composable(
+        iosComposable(
             Route.AccountImport,
+            onBack = { nav.popBackStack() },
             arguments = listOf(
                 navArgument("groupId") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
@@ -195,8 +231,9 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
             )
         }
 
-        composable(
+        iosComposable(
             Route.GroupEdit,
+            onBack = { nav.popBackStack() },
             arguments = listOf(
                 navArgument("groupId") { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
@@ -211,21 +248,23 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
             )
         }
 
-        composable(
+        iosComposable(
             Route.JobDetail,
+            onBack = { nav.popBackStack() },
             arguments = listOf(navArgument("jobId") { type = NavType.StringType }),
         ) { entry ->
             JobDetailScreen(jobId = entry.arguments?.getString("jobId").orEmpty(), onBack = { nav.popBackStack() })
         }
 
-        composable(Route.RefreshLogs) { RefreshLogsScreen(onBack = { nav.popBackStack() }) }
-        composable(Route.Tokens) {
+        iosComposable(Route.RefreshLogs, onBack = { nav.popBackStack() }) { RefreshLogsScreen(onBack = { nav.popBackStack() }) }
+        iosComposable(Route.Tokens, onBack = { nav.popBackStack() }) {
             TokensScreen(
+                onBack = { nav.popBackStack() },
                 onOpenJob = { nav.navigate(Route.job(it)) },
                 onOpenLogs = { nav.navigate(Route.RefreshLogs) },
             )
         }
-        composable(Route.MailSearch) {
+        iosComposable(Route.MailSearch, onBack = { nav.popBackStack() }) {
             MailSearchScreen(
                 onBack = { nav.popBackStack() },
                 onOpen = { cached ->
@@ -238,26 +277,33 @@ fun AppNav(pendingOpen: Pair<String, String>? = null, onOpenConsumed: () -> Unit
                 },
             )
         }
-        composable(Route.AdminUsers) { AdminUsersScreen(onBack = { nav.popBackStack() }) }
-        composable(Route.AdminPlans) { AdminPlansScreen(onBack = { nav.popBackStack() }) }
-        composable(Route.AdminAudit) { AdminAuditScreen(onBack = { nav.popBackStack() }) }
-        composable(Route.Profile) { ProfileScreen(onBack = { nav.popBackStack() }) }
-        composable(Route.Members) { MembersScreen(onBack = { nav.popBackStack() }) }
-        composable(Route.ApiKey) { ApiKeyScreen(onBack = { nav.popBackStack() }) }
-        composable(Route.Quota) { QuotaScreen(onBack = { nav.popBackStack() }) }
-        composable(Route.Workspaces) { WorkspacesScreen(onBack = { nav.popBackStack() }) }
-        composable(Route.Settings) {
-            SettingsScreen(onBack = { nav.popBackStack() }, updateVm = updateVm)
+        iosComposable(Route.AdminUsers, onBack = { nav.popBackStack() }) {
+            AdminUsersScreen(onBack = { nav.popBackStack() }, onNavigate = { nav.navigate(it) })
         }
-        composable(Route.SyncHealth) { SyncHealthScreen(onBack = { nav.popBackStack() }) }
+        iosComposable(Route.AdminPlans, onBack = { nav.popBackStack() }) { AdminPlansScreen(onBack = { nav.popBackStack() }) }
+        iosComposable(Route.AdminAudit, onBack = { nav.popBackStack() }) { AdminAuditScreen(onBack = { nav.popBackStack() }) }
+        iosComposable(Route.Profile, onBack = { nav.popBackStack() }) { ProfileScreen(onBack = { nav.popBackStack() }) }
+        iosComposable(Route.Members, onBack = { nav.popBackStack() }) { MembersScreen(onBack = { nav.popBackStack() }) }
+        iosComposable(Route.ApiKey, onBack = { nav.popBackStack() }) { ApiKeyScreen(onBack = { nav.popBackStack() }) }
+        iosComposable(Route.Quota, onBack = { nav.popBackStack() }) { QuotaScreen(onBack = { nav.popBackStack() }) }
+        iosComposable(Route.Workspaces, onBack = { nav.popBackStack() }) { WorkspacesScreen(onBack = { nav.popBackStack() }) }
+        iosComposable(Route.Settings, onBack = { nav.popBackStack() }) {
+            SettingsScreen(
+                onBack = { nav.popBackStack() },
+                updateVm = updateVm,
+                onNavigateToProfile = { nav.navigate(Route.Profile) },
+            )
+        }
+        iosComposable(Route.SyncHealth, onBack = { nav.popBackStack() }) { SyncHealthScreen(onBack = { nav.popBackStack() }) }
+            }
+        }
     }
 
     // 全局更新弹窗：任何页面都可能弹出。
-    // 手动「检查更新」是用户主动要求，无视「下次再说」的跳过标记；
-    // 只有启动静默检查尊重它，避免打扰。
+    // 只要公网清单高于当前 versionCode，就展示更新；关闭只影响当前弹窗。
     val updateState by updateVm.state.collectAsStateWithLifecycle()
     val info = updateState.info
-    if (info != null && (updateState.manual || info.versionCode > Prefs.skippedVersion)) {
+    if (info != null) {
         UpdateDialog(
             state = updateState,
             onDismiss = { updateVm.dismiss(info) },

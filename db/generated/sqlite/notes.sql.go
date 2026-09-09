@@ -10,16 +10,17 @@ import (
 )
 
 const createNote = `-- name: CreateNote :exec
-INSERT INTO notes (id, tenant_id, title, content, is_pinned)
-VALUES (?, ?, ?, ?, ?)
+INSERT INTO notes (id, tenant_id, title, content, is_pinned, is_completed)
+VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type CreateNoteParams struct {
-	ID       string
-	TenantID string
-	Title    string
-	Content  string
-	IsPinned int64
+	ID          string
+	TenantID    string
+	Title       string
+	Content     string
+	IsPinned    int64
+	IsCompleted int64
 }
 
 func (q *Queries) CreateNote(ctx context.Context, arg CreateNoteParams) error {
@@ -29,6 +30,7 @@ func (q *Queries) CreateNote(ctx context.Context, arg CreateNoteParams) error {
 		arg.Title,
 		arg.Content,
 		arg.IsPinned,
+		arg.IsCompleted,
 	)
 	return err
 }
@@ -51,7 +53,7 @@ func (q *Queries) DeleteNote(ctx context.Context, arg DeleteNoteParams) (int64, 
 }
 
 const getNote = `-- name: GetNote :one
-SELECT id, tenant_id, title, content, is_pinned, created_at, updated_at FROM notes WHERE tenant_id = ? AND id = ? LIMIT 1
+SELECT id, tenant_id, title, content, is_pinned, created_at, updated_at, is_completed FROM notes WHERE tenant_id = ? AND id = ? LIMIT 1
 `
 
 type GetNoteParams struct {
@@ -70,13 +72,14 @@ func (q *Queries) GetNote(ctx context.Context, arg GetNoteParams) (Note, error) 
 		&i.IsPinned,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IsCompleted,
 	)
 	return i, err
 }
 
 const listNotes = `-- name: ListNotes :many
-SELECT id, tenant_id, title, content, is_pinned, created_at, updated_at FROM notes WHERE tenant_id = ?
-ORDER BY is_pinned DESC, updated_at DESC
+SELECT id, tenant_id, title, content, is_pinned, created_at, updated_at, is_completed FROM notes WHERE tenant_id = ?
+ORDER BY is_completed ASC, is_pinned DESC, updated_at DESC
 `
 
 func (q *Queries) ListNotes(ctx context.Context, tenantID string) ([]Note, error) {
@@ -96,6 +99,7 @@ func (q *Queries) ListNotes(ctx context.Context, tenantID string) ([]Note, error
 			&i.IsPinned,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IsCompleted,
 		); err != nil {
 			return nil, err
 		}
@@ -111,16 +115,17 @@ func (q *Queries) ListNotes(ctx context.Context, tenantID string) ([]Note, error
 }
 
 const updateNote = `-- name: UpdateNote :execrows
-UPDATE notes SET title = ?, content = ?, is_pinned = ?, updated_at = CURRENT_TIMESTAMP
+UPDATE notes SET title = ?, content = ?, is_pinned = ?, is_completed = ?, updated_at = CURRENT_TIMESTAMP
 WHERE tenant_id = ? AND id = ?
 `
 
 type UpdateNoteParams struct {
-	Title    string
-	Content  string
-	IsPinned int64
-	TenantID string
-	ID       string
+	Title       string
+	Content     string
+	IsPinned    int64
+	IsCompleted int64
+	TenantID    string
+	ID          string
 }
 
 func (q *Queries) UpdateNote(ctx context.Context, arg UpdateNoteParams) (int64, error) {
@@ -128,6 +133,7 @@ func (q *Queries) UpdateNote(ctx context.Context, arg UpdateNoteParams) (int64, 
 		arg.Title,
 		arg.Content,
 		arg.IsPinned,
+		arg.IsCompleted,
 		arg.TenantID,
 		arg.ID,
 	)

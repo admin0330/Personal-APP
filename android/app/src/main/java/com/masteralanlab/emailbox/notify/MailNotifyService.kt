@@ -6,9 +6,12 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.masteralanlab.emailbox.MainActivity
 import com.masteralanlab.emailbox.data.AccountsCache
 import com.masteralanlab.emailbox.data.MailPreloadCache
@@ -59,6 +62,8 @@ class MailNotifyService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        startAsForeground()
+        running = true
         if (streamJob?.isActive != true) {
             streamJob = scope.launch { runStream(tenant) }
             scope.launch { refreshAccountEmails(tenant) }
@@ -67,7 +72,9 @@ class MailNotifyService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         scope.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 
@@ -172,7 +179,10 @@ class MailNotifyService : Service() {
     companion object {
 
         private const val CHANNEL_MAIL = "new_mail"
+        private const val CHANNEL_SERVICE = "mail_sync_service"
+        private const val FOREGROUND_NOTIFICATION_ID = 4101
         private const val MAX_STREAM_RESTARTS = 5
+        @Volatile private var running = false
 
         fun createChannels(context: Context) {
             val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -183,14 +193,28 @@ class MailNotifyService : Service() {
                     NotificationManager.IMPORTANCE_DEFAULT,
                 ).apply { description = "服务器检测到新邮件时的提醒" },
             )
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_SERVICE,
+                    "后台邮件同步",
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply { description = "保持服务器拉取与邮件预加载服务运行" },
+            )
         }
 
-        private fun notificationsAllowed(context: Context): Boolean {
+        fun notificationsAllowed(context: Context): Boolean {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
             return androidx.core.content.ContextCompat.checkSelfPermission(
                 context,
                 android.Manifest.permission.POST_NOTIFICATIONS,
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+        fun isRunning(): Boolean = running
+
+        fun batteryOptimizationIgnored(context: Context): Boolean {
+            val manager = context.getSystemService(PowerManager::class.java) ?: return false
+            return manager.isIgnoringBatteryOptimizations(context.packageName)
         }
 
         /** 登录态 + 服务器拉取模式才允许启动；其余情况是幂等停服。 */
@@ -199,12 +223,34 @@ class MailNotifyService : Service() {
                 !Prefs.tenantId.isNullOrBlank()
             val intent = Intent(context, MailNotifyService::class.java)
             if (shouldRun) {
-                runCatching { context.startService(intent) }
+                runCatching {
+                    ContextCompat.startForegroundService(context, intent)
+                }
             } else {
                 context.stopService(intent)
             }
         }
 
         private fun hasActiveSession(): Boolean = runCatching { Prefs.hasSession }.getOrDefault(false)
+    }
+
+    private fun startAsForeground() {
+        val notification = NotificationCompat.Builder(this, CHANNEL_SERVICE)
+            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setContentTitle("Ym1r 邮件同步")
+            .setContentText("服务器拉取与邮件预加载已开启")
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                FOREGROUND_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        } else {
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        }
     }
 }

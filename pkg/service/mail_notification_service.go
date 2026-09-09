@@ -90,31 +90,50 @@ func (s *MailNotificationService) pollTenant(tenantID string) {
 		slog.Warn("预取邮件账号列表失败", "tenant_id", tenantID, "error", err)
 		return
 	}
+	// 慢账号不能阻塞后续账号的缓存和通知；每个租户最多两条上游请求。
+	var workers sync.WaitGroup
+	permits := make(chan struct{}, 2)
 	for _, account := range accounts {
-		ctx, cancel := context.WithTimeout(s.ctx, 45*time.Second)
-		result, err := s.messages.List(ctx, tenantID, account.ID, mailer.ListOptions{
-			Folder: mailer.FolderInbox, Top: 25,
-		})
-		cancel()
-		if err != nil {
-			if s.ctx.Err() == nil {
-				slog.Warn("预取收件箱失败", "tenant_id", tenantID, "account_id", account.ID, "error", err)
-			}
-			continue
+		select {
+		case permits <- struct{}{}:
+		case <-s.ctx.Done():
+			workers.Wait()
+			return
 		}
+		workers.Add(1)
+		go func(account model.MailAccount) {
+			defer workers.Done()
+			defer func() { <-permits }()
+			s.pollAccount(tenantID, account)
+		}(account)
+	}
+	workers.Wait()
+}
 
-		key := notificationSnapshotKey{tenantID: tenantID, accountID: account.ID}
-		next := messageIDSet(result.Items)
-		s.mu.Lock()
-		previous, hadBaseline := s.snapshots[key]
-		s.snapshots[key] = next
-		s.mu.Unlock()
-		if hadBaseline {
-			if count := newMessageCount(previous, result.Items); count > 0 {
-				s.broadcast(tenantID, MailNotification{
-					Seq: s.seq.Add(1), AccountID: account.ID, NewCount: count,
-				})
-			}
+func (s *MailNotificationService) pollAccount(tenantID string, account model.MailAccount) {
+	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Second)
+	result, err := s.messages.List(ctx, tenantID, account.ID, mailer.ListOptions{
+		Folder: mailer.FolderInbox, Top: 25,
+	})
+	cancel()
+	if err != nil {
+		if s.ctx.Err() == nil {
+			slog.Warn("预取收件箱失败", "tenant_id", tenantID, "account_id", account.ID, "error", err)
+		}
+		return
+	}
+
+	key := notificationSnapshotKey{tenantID: tenantID, accountID: account.ID}
+	next := messageIDSet(result.Items)
+	s.mu.Lock()
+	previous, hadBaseline := s.snapshots[key]
+	s.snapshots[key] = next
+	s.mu.Unlock()
+	if hadBaseline {
+		if count := newMessageCount(previous, result.Items); count > 0 {
+			s.broadcast(tenantID, MailNotification{
+				Seq: s.seq.Add(1), AccountID: account.ID, NewCount: count,
+			})
 		}
 	}
 }

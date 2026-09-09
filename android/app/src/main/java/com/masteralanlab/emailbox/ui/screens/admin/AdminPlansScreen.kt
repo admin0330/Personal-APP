@@ -1,5 +1,6 @@
 package com.masteralanlab.emailbox.ui.screens.admin
 
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,14 +15,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,8 +26,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -68,6 +61,8 @@ import com.masteralanlab.emailbox.ui.components.AppTopBar
 import com.masteralanlab.emailbox.ui.components.EmptyBox
 import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductField
+import com.masteralanlab.emailbox.ui.components.ProductSurface
 import com.masteralanlab.emailbox.ui.components.StatusChip
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -286,12 +281,16 @@ fun AdminPlansScreen(onBack: () -> Unit) {
         topBar = { AppTopBar(title = "套餐管理", onBack = onBack) },
         floatingActionButton = {
             if (isAdmin) {
-                FloatingActionButton(onClick = {
-                    draft = PlanDraft.of(null)
-                    formError = null
-                    creating = true
-                }) {
-                    Icon(Icons.Outlined.Add, contentDescription = "新建套餐")
+                FloatingActionButton(
+                    onClick = {
+                        draft = PlanDraft.of(null)
+                        formError = null
+                        creating = true
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Icon(Ym1rIcons.Plus, contentDescription = "新建套餐")
                 }
             }
         },
@@ -300,7 +299,7 @@ fun AdminPlansScreen(onBack: () -> Unit) {
             when {
                 !isAdmin -> EmptyBox(
                     text = "需要平台管理员权限\n当前账号无权查看套餐管理",
-                    icon = Icons.Outlined.Lock,
+                    icon = Ym1rIcons.Lock,
                 )
 
                 loading -> LoadingBox(text = "正在加载套餐…")
@@ -413,7 +412,7 @@ fun AdminPlansScreen(onBack: () -> Unit) {
 
 @Composable
 private fun PlanCard(plan: Plan, onEdit: () -> Unit, onDelete: () -> Unit) {
-    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+    ProductSurface(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -447,7 +446,7 @@ private fun PlanCard(plan: Plan, onEdit: () -> Unit, onDelete: () -> Unit) {
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onEdit) {
-                    Icon(Icons.Outlined.Edit, contentDescription = null)
+                    Icon(Ym1rIcons.Pencil, contentDescription = null)
                     Spacer(Modifier.width(4.dp))
                     Text("编辑")
                 }
@@ -457,7 +456,7 @@ private fun PlanCard(plan: Plan, onEdit: () -> Unit, onDelete: () -> Unit) {
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
                 ) {
-                    Icon(Icons.Outlined.Delete, contentDescription = null)
+                    Icon(Ym1rIcons.Trash2, contentDescription = null)
                     Spacer(Modifier.width(4.dp))
                     Text("删除")
                 }
@@ -510,21 +509,20 @@ private fun PlanEditorSheet(
                 style = MaterialTheme.typography.titleMedium,
             )
 
-            OutlinedTextField(
+            ProductField(
                 value = draft.code,
                 onValueChange = { onDraftChange(draft.copy(code = it)) },
-                label = { Text("套餐代码") },
+                label = "套餐代码",
+                supporting = if (isEdit) "套餐代码创建后不可修改" else "仅小写字母、数字、下划线与连字符",
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 enabled = !isEdit,
-                supportingText = {
-                    Text(if (isEdit) "套餐代码创建后不可修改" else "仅小写字母、数字、下划线与连字符")
-                },
             )
-            OutlinedTextField(
+            ProductField(
                 value = draft.name,
                 onValueChange = { onDraftChange(draft.copy(name = it)) },
-                label = { Text("套餐名称") },
+                label = "套餐名称",
+                placeholder = "例如：专业版",
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
@@ -559,14 +557,14 @@ private fun PlanEditorSheet(
 
             if (error != null) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         error,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     )
                 }
@@ -585,13 +583,13 @@ private fun PlanEditorSheet(
 
 @Composable
 private fun LimitField(label: String, value: String, onValueChange: (String) -> Unit) {
-    OutlinedTextField(
+    ProductField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text(label) },
+        label = label,
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        supportingText = { Text("填 -1 或留空表示不限") },
+        supporting = "填 -1 或留空表示不限",
     )
 }

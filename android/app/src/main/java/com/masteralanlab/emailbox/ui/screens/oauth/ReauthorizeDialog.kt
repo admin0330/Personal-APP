@@ -12,7 +12,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,6 +29,7 @@ import com.masteralanlab.emailbox.data.Prefs
 import com.masteralanlab.emailbox.data.remote.ApiResult
 import com.masteralanlab.emailbox.data.remote.OAuthCompleteRequest
 import com.masteralanlab.emailbox.data.remote.apiCall
+import com.masteralanlab.emailbox.ui.components.ProductField
 import kotlinx.coroutines.launch
 
 /**
@@ -130,12 +130,14 @@ fun ReauthorizeDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
+                        ProductField(
                             value = pasted,
                             onValueChange = { pasted = it },
-                            label = { Text("粘贴浏览器地址") },
+                            label = "粘贴浏览器地址",
                             modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3,
+                            singleLine = false,
+                            minLines = 3,
+                            placeholder = "粘贴包含 code= 的完整地址",
                         )
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(

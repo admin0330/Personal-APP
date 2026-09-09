@@ -22,13 +22,13 @@ import java.security.MessageDigest
 /**
  * 应用内更新：拉取更新清单 → 比对 versionCode → 下载 APK → 校验 SHA-256 → 交给系统安装器。
  *
- * 清单地址固定在 ym3861.cn，与登录的 Emailbox 服务器无关；请求禁用一切缓存，
+ * 清单地址固定在 example.com，与登录的 Emailbox 服务器无关；请求禁用一切缓存，
  * 否则运营商或 OkHttp 的缓存会让用户拿不到刚发布的版本。
  */
 object UpdateManager {
 
-    const val STABLE_MANIFEST_URL = "https://ym3861.cn/emailbox-updates/latest.json"
-    const val TEST_MANIFEST_URL = "https://ym3861.cn/emailbox-updates/beta.json"
+    const val STABLE_MANIFEST_URL = "https://example.com/emailbox-updates/latest.json"
+    const val TEST_MANIFEST_URL = "https://example.com/emailbox-updates/beta.json"
 
     /**
      * 两个渠道都由同一台服务器托管，普通用户不能填写任意清单地址。
@@ -41,7 +41,8 @@ object UpdateManager {
         if (Prefs.updateChannel == Prefs.UPDATE_CHANNEL_TEST) "测试版" else "稳定版"
 
     /**
-     * 清单有效性判定：只有远端 versionCode 严格更大且下载地址齐全时才提示更新。
+     * 清单有效性判定：只有远端 versionCode 高于当前版本且下载地址齐全，才提示更新。
+     * 远端较低版本不能作为更新，否则会把候选版/测试版误报成可安装的降级包。
      * 清单不可用、版本相同或更低都不打扰用户；这里故意不校验 sha256——
      * 校验失败要发生在「下载完成之后、交给安装器之前」（见 download），提前判掉反而
      * 会让一个发布时写错了摘要的正常版本完全无法提示。
@@ -128,39 +129,58 @@ object UpdateManager {
             start = 0L
         }
 
-        val request = Request.Builder().url(info.url).header("Accept-Encoding", "identity")
-            .apply { if (start > 0) header("Range", "bytes=$start-") }
-            .build()
-        ApiClient.plainClient().newCall(request).execute().use { resp ->
-            when {
-                // 206 = 服务器支持续传，追加写入
-                resp.code == 206 && start > 0 -> Unit
-                // 200 = 服务器不支持 Range 或断点已失效，从头开始
-                resp.code == 200 -> {
-                    start = 0L
-                    if (part.exists()) part.delete()
-                }
+        val urlsToTry = listOfNotNull(
+            info.url.takeIf { it.isNotBlank() },
+            info.backupUrl.takeIf { it.isNotBlank() }
+        ).distinct()
 
-                else -> error("下载失败：HTTP ${resp.code}")
-            }
+        var downloadSuccess = false
+        var lastError: Throwable? = null
 
-            val body = resp.body ?: error("下载失败：空响应")
-            val total = (start + body.contentLength().coerceAtLeast(0))
-                .takeIf { it > 0 } ?: info.size.takeIf { it > 0 } ?: 0L
-
-            body.byteStream().use { input ->
-                java.io.FileOutputStream(part, start > 0).use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var read: Int
-                    var done = start
-                    while (input.read(buffer).also { read = it } != -1) {
-                        output.write(buffer, 0, read)
-                        done += read
-                        if (total > 0) onProgress((done.toFloat() / total).coerceIn(0f, 1f))
+        for (downloadUrl in urlsToTry) {
+            try {
+                val request = Request.Builder().url(downloadUrl).header("Accept-Encoding", "identity")
+                    .apply { if (start > 0) header("Range", "bytes=$start-") }
+                    .build()
+                ApiClient.plainClient().newCall(request).execute().use { resp ->
+                    when {
+                        // 206 = 服务器支持续传，追加写入
+                        resp.code == 206 && start > 0 -> Unit
+                        // 200 = 服务器不支持 Range 或断点已失效，从头开始
+                        resp.code == 200 -> {
+                            start = 0L
+                            if (part.exists()) part.delete()
+                        }
+                        else -> error("下载失败：HTTP ${resp.code}")
                     }
-                    output.flush()
+
+                    val body = resp.body ?: error("下载失败：空响应")
+                    val total = (start + body.contentLength().coerceAtLeast(0))
+                        .takeIf { it > 0 } ?: info.size.takeIf { it > 0 } ?: 0L
+
+                    body.byteStream().use { input ->
+                        java.io.FileOutputStream(part, start > 0).use { output ->
+                            val buffer = ByteArray(128 * 1024)
+                            var read: Int
+                            var done = start
+                            while (input.read(buffer).also { read = it } != -1) {
+                                output.write(buffer, 0, read)
+                                done += read
+                                if (total > 0) onProgress((done.toFloat() / total).coerceIn(0f, 1f))
+                            }
+                            output.flush()
+                        }
+                    }
                 }
+                downloadSuccess = true
+                break
+            } catch (e: Throwable) {
+                lastError = e
             }
+        }
+
+        if (!downloadSuccess) {
+            throw (lastError ?: Exception("更新包下载失败"))
         }
         onProgress(1f)
 

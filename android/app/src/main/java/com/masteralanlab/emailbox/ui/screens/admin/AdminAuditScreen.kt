@@ -1,5 +1,6 @@
 package com.masteralanlab.emailbox.ui.screens.admin
 
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,9 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -313,7 +311,7 @@ fun AdminAuditScreen(onBack: () -> Unit) {
                 Box(Modifier.fillMaxSize()) {
                     EmptyBox(
                         text = "需要平台管理员权限\n当前账号无权查看审计日志",
-                        icon = Icons.Outlined.Lock,
+                        icon = Ym1rIcons.Lock,
                     )
                 }
             } else {
@@ -421,7 +419,7 @@ private fun AuditFilterRow(
 private fun AuditLogCard(log: AuditLog) {
     val details = remember(log.details) { formatDetails(log.details) }
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -436,7 +434,7 @@ private fun AuditLogCard(log: AuditLog) {
                 )
                 Spacer(Modifier.width(8.dp))
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = MaterialTheme.shapes.extraSmall,
                     color = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
                     Text(
@@ -487,7 +485,7 @@ private fun AuditLogCard(log: AuditLog) {
             if (details.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = MaterialTheme.shapes.small,
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier.fillMaxWidth(),
                 ) {

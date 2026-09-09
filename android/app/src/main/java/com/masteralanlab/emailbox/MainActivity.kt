@@ -1,5 +1,6 @@
 package com.masteralanlab.emailbox
 
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
@@ -9,16 +10,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -45,6 +49,8 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Prefs.init(this)
+        ThemeSettings.load()
+        installDebugFixtureIfRequested(intent)
         unlocked = !BiometricUnlock.shouldRequire(this)
         enableEdgeToEdge()
         handleOpen(intent)
@@ -67,6 +73,15 @@ class MainActivity : FragmentActivity() {
         val accountId = intent?.getStringExtra("open_account_id") ?: return
         if (accountId.isBlank()) return
         pendingOpen = accountId to (intent.getStringExtra("open_email") ?: "")
+    }
+
+    private fun installDebugFixtureIfRequested(intent: Intent?) {
+        if (!BuildConfig.DEBUG || intent?.getBooleanExtra("debug_fixture", false) != true) return
+        runCatching {
+            Class.forName("com.masteralanlab.emailbox.DebugFixtureHooks")
+                .getMethod("install", android.content.Context::class.java)
+                .invoke(null, this)
+        }
     }
 
     override fun onStart() {
@@ -118,7 +133,6 @@ private fun EmailboxRoot(
 ) {
     EmailboxTheme(
         darkTheme = rememberDarkTheme(),
-        dynamicColor = ThemeSettings.dynamicColor,
     ) {
         if (unlocked) AppNav(pendingOpen = pendingOpen, onOpenConsumed = onOpenConsumed)
         else UnlockScreen(onUnlock)
@@ -127,30 +141,41 @@ private fun EmailboxRoot(
 
 @Composable
 private fun UnlockScreen(onUnlock: () -> Unit) {
-    // 只留一个锁图标，放在屏幕上方：系统指纹/密码弹窗出现在中下部，不会盖住它；
-    // 点按图标等同于请求解锁（弹窗失败或被关掉后的手动入口）。
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .safeDrawingPadding(),
+            .safeDrawingPadding()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         Surface(
             onClick = onUnlock,
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            color = MaterialTheme.colorScheme.primaryContainer,
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 112.dp)
-                .size(84.dp),
+                .size(88.dp),
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
-                    Icons.Filled.Lock,
-                    contentDescription = "点按解锁",
-                    modifier = Modifier.size(34.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Ym1rIcons.Lock,
+                    contentDescription = null,
+                    modifier = Modifier.size(36.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
+        }
+        Spacer(Modifier.size(24.dp))
+        Text("Ym1r", style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.size(6.dp))
+        Text(
+            "应用已锁定",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.size(20.dp))
+        FilledTonalButton(onClick = onUnlock) {
+            Text("使用指纹解锁")
         }
     }
 }

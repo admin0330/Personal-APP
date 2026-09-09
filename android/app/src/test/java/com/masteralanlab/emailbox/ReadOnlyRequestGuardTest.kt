@@ -26,10 +26,10 @@ class ReadOnlyRequestGuardTest {
     }
 
     private fun get(path: String = "/mail/groups") =
-        Request.Builder().url("https://ym3861.cn/emailbox/api/v1/tenants/t$path").get().build()
+        Request.Builder().url("https://example.com/emailbox/api/v1/tenants/t$path").get().build()
 
     private fun post() = Request.Builder()
-        .url("https://ym3861.cn/emailbox/api/v1/tenants/t/mail/accounts")
+        .url("https://example.com/emailbox/api/v1/tenants/t/mail/accounts")
         .post("{}".toRequestBody("application/json".toMediaType()))
         .build()
 
@@ -37,7 +37,7 @@ class ReadOnlyRequestGuardTest {
     fun `api key mode rejects non-get methods`() {
         listOf("POST", "PATCH", "PUT", "DELETE").forEach { method ->
             val request = Request.Builder()
-                .url("https://ym3861.cn/emailbox/api/v1/tenants/t/mail/accounts")
+                .url("https://example.com/emailbox/api/v1/tenants/t/mail/accounts")
                 .method(method, if (method == "DELETE") null else "{}".toRequestBody("application/json".toMediaType()))
                 .build()
             assertThrows(ReadOnlyBlockedException::class.java) {
@@ -57,19 +57,19 @@ class ReadOnlyRequestGuardTest {
     fun `api key mode only allows exact ledger writes`() {
         val body = "{}".toRequestBody("application/json".toMediaType())
         val allowed = listOf(
-            Request.Builder().url("https://ym3861.cn/emailbox/api/v1/tenants/t/ledger/transactions").post(body).build(),
-            Request.Builder().url("https://ym3861.cn/emailbox/api/v1/tenants/t/ledger/transactions/id").patch(body).build(),
-            Request.Builder().url("https://ym3861.cn/emailbox/api/v1/tenants/t/ledger/transactions/id").delete().build(),
+            Request.Builder().url("https://example.com/emailbox/api/v1/tenants/t/ledger/transactions").post(body).build(),
+            Request.Builder().url("https://example.com/emailbox/api/v1/tenants/t/ledger/transactions/id").patch(body).build(),
+            Request.Builder().url("https://example.com/emailbox/api/v1/tenants/t/ledger/transactions/id").delete().build(),
         )
         allowed.forEach { assertEquals(it.method, prepareRequest(it, true, "ebx_secret").method) }
-        val lookalike = Request.Builder().url("https://ym3861.cn/emailbox/api/v1/tenants/t/ledger/transactions/id/extra").post(body).build()
+        val lookalike = Request.Builder().url("https://example.com/emailbox/api/v1/tenants/t/ledger/transactions/id/extra").post(body).build()
         assertThrows(ReadOnlyBlockedException::class.java) { prepareRequest(lookalike, true, "ebx_secret") }
     }
 
     @Test
     fun `api key mode does not overwrite an explicit authorization header`() {
         val request = Request.Builder()
-            .url("https://ym3861.cn/emailbox/api/v1/tenants/t/mail/groups")
+            .url("https://example.com/emailbox/api/v1/tenants/t/mail/groups")
             .get()
             .header("Authorization", "Bearer user_provided")
             .build()

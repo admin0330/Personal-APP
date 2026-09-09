@@ -52,15 +52,15 @@ type DeviceCode struct {
 // 之后只存在于设备的 Keystore。设备丢了重新绑一台即可，
 // 而「随时能再显示一次」的能力只会让一次数据库泄露的收益翻倍。
 type DeviceToken struct {
-	ID         string
-	TenantID   string
-	TokenHash  string
-	TokenHint  string
-	Label      string
-	CreatedBy  string
-	ExpiresAt  time.Time
-	RevokedAt  *time.Time
-	CreatedAt  time.Time
+	ID        string
+	TenantID  string
+	TokenHash string
+	TokenHint string
+	Label     string
+	CreatedBy string
+	ExpiresAt time.Time
+	RevokedAt *time.Time
+	CreatedAt time.Time
 }
 
 // DeviceView 是设备列表里的一行。token_hash 永不出现在响应里——

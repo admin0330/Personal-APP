@@ -77,7 +77,10 @@ func (s *SyncHealthService) Switch(ctx context.Context, group, node string) erro
 	if !allowed {
 		return errors.New("节点不属于该代理组")
 	}
-	body, _ := json.Marshal(map[string]string{"name": node})
+	body, err := json.Marshal(map[string]string{"name": node})
+	if err != nil {
+		return fmt.Errorf("无法编码代理节点: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, s.baseURL+"/proxies/"+url.PathEscape(group), bytes.NewReader(body))
 	if err != nil {
 		return err

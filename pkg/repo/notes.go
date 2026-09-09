@@ -9,17 +9,17 @@ import (
 )
 
 func mapSQLiteNote(v sqlitedb.Note) *model.Note {
-	return &model.Note{ID: v.ID, TenantID: v.TenantID, Title: v.Title, Content: v.Content, IsPinned: v.IsPinned != 0, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	return &model.Note{ID: v.ID, TenantID: v.TenantID, Title: v.Title, Content: v.Content, IsPinned: v.IsPinned != 0, IsCompleted: v.IsCompleted != 0, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 func mapPostgresNote(v postgresdb.Note) *model.Note {
-	return &model.Note{ID: v.ID, TenantID: v.TenantID, Title: v.Title, Content: v.Content, IsPinned: v.IsPinned, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
+	return &model.Note{ID: v.ID, TenantID: v.TenantID, Title: v.Title, Content: v.Content, IsPinned: v.IsPinned, IsCompleted: v.IsCompleted, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt}
 }
 
 func (s *Store) CreateNote(ctx context.Context, v *model.Note) error {
 	if s.driver == "sqlite" {
-		return normalize(s.sqlite.CreateNote(ctx, sqlitedb.CreateNoteParams{ID: v.ID, TenantID: v.TenantID, Title: v.Title, Content: v.Content, IsPinned: boolToInt64(v.IsPinned)}))
+		return normalize(s.sqlite.CreateNote(ctx, sqlitedb.CreateNoteParams{ID: v.ID, TenantID: v.TenantID, Title: v.Title, Content: v.Content, IsPinned: boolToInt64(v.IsPinned), IsCompleted: boolToInt64(v.IsCompleted)}))
 	}
-	return normalize(s.postgres.CreateNote(ctx, postgresdb.CreateNoteParams{ID: v.ID, TenantID: v.TenantID, Title: v.Title, Content: v.Content, IsPinned: v.IsPinned}))
+	return normalize(s.postgres.CreateNote(ctx, postgresdb.CreateNoteParams{ID: v.ID, TenantID: v.TenantID, Title: v.Title, Content: v.Content, IsPinned: v.IsPinned, IsCompleted: v.IsCompleted}))
 }
 
 func (s *Store) ListNotes(ctx context.Context, tenantID string) ([]model.Note, error) {
@@ -60,9 +60,9 @@ func (s *Store) UpdateNote(ctx context.Context, v *model.Note) error {
 	var n int64
 	var err error
 	if s.driver == "sqlite" {
-		n, err = s.sqlite.UpdateNote(ctx, sqlitedb.UpdateNoteParams{Title: v.Title, Content: v.Content, IsPinned: boolToInt64(v.IsPinned), TenantID: v.TenantID, ID: v.ID})
+		n, err = s.sqlite.UpdateNote(ctx, sqlitedb.UpdateNoteParams{Title: v.Title, Content: v.Content, IsPinned: boolToInt64(v.IsPinned), IsCompleted: boolToInt64(v.IsCompleted), TenantID: v.TenantID, ID: v.ID})
 	} else {
-		n, err = s.postgres.UpdateNote(ctx, postgresdb.UpdateNoteParams{Title: v.Title, Content: v.Content, IsPinned: v.IsPinned, TenantID: v.TenantID, ID: v.ID})
+		n, err = s.postgres.UpdateNote(ctx, postgresdb.UpdateNoteParams{Title: v.Title, Content: v.Content, IsPinned: v.IsPinned, IsCompleted: v.IsCompleted, TenantID: v.TenantID, ID: v.ID})
 	}
 	return rowsAffected(n, err)
 }

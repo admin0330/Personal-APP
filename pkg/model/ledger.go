@@ -12,23 +12,23 @@ const (
 var LedgerCurrencies = map[string]bool{"CNY": true, "USD": true, "HKD": true}
 
 type LedgerTransaction struct {
-	ID               string     `json:"id"`
-	TenantID         string     `json:"tenant_id"`
-	Type             string     `json:"type"`
-	AmountMinor      int64      `json:"amount_minor"`
-	Currency         string     `json:"currency"`
-	Category         string     `json:"category"`
-	OccurredAt       time.Time  `json:"occurred_at"`
-	Merchant         string     `json:"merchant"`
-	Note             string     `json:"note"`
-	Source           string     `json:"source"`
-	SourceMessageKey *string    `json:"source_message_key,omitempty"`
-	ClientID         string     `json:"client_id"`
+	ID               string    `json:"id"`
+	TenantID         string    `json:"tenant_id"`
+	Type             string    `json:"type"`
+	AmountMinor      int64     `json:"amount_minor"`
+	Currency         string    `json:"currency"`
+	Category         string    `json:"category"`
+	OccurredAt       time.Time `json:"occurred_at"`
+	Merchant         string    `json:"merchant"`
+	Note             string    `json:"note"`
+	Source           string    `json:"source"`
+	SourceMessageKey *string   `json:"source_message_key,omitempty"`
+	ClientID         string    `json:"client_id"`
 	// Posted = 已入账。false 表示仅建议（如邮件识别的账单），不计入结余汇总。
-	Posted bool `json:"posted"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	DeletedAt        *time.Time `json:"-"`
+	Posted    bool       `json:"posted"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt *time.Time `json:"-"`
 }
 
 type LedgerSummaryItem struct {

@@ -51,8 +51,9 @@ func (c *Client) Channel() string { return c.cfg.Channel }
 
 // session 是一条已经登录好的 IMAP 连接。
 type session struct {
-	imap  *imapclient.Client
-	proxy string
+	imap       *imapclient.Client
+	proxy      string
+	stopCancel func() bool
 	// uidCapable 表示该连接上可以用 UID 命令。几乎所有服务器都支持，
 	// 但这个标记要如实带到 Message.IDMode 上——混用 UID 与序列号会取到错误的邮件。
 	uidCapable bool
@@ -62,10 +63,10 @@ func (s *session) close() {
 	if s.imap == nil {
 		return
 	}
-	// LOGOUT 失败无所谓，紧接着的 Close 会把连接收掉；
-	// 连接已经断了的情况下报错反而是常态。
-	//nolint:errcheck // 故意丢弃：连接就要关了，LOGOUT 的结果没有意义
-	s.imap.Logout().Wait()
+	if s.stopCancel != nil {
+		s.stopCancel()
+	}
+	// 不等待 LOGOUT 响应：已拿到正文后，服务商慢退出不能继续阻塞 HTTP 响应。
 	_ = s.imap.Close()
 }
 
@@ -128,12 +129,28 @@ func runOnProxy[T any](
 	fn func(context.Context, *session) (T, error),
 ) (T, error) {
 	var zero T
+	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+	defer cancel()
 	s, err := c.connect(ctx, cred, proxyURL)
 	if err != nil {
+		if ctx.Err() != nil {
+			return zero, requestContextError(c.cfg.Channel, ctx.Err())
+		}
 		return zero, err
 	}
 	defer s.close()
-	return fn(ctx, s)
+	result, err := fn(ctx, s)
+	if err != nil && ctx.Err() != nil {
+		return zero, requestContextError(c.cfg.Channel, ctx.Err())
+	}
+	return result, err
+}
+
+func requestContextError(channel string, err error) error {
+	if err == context.DeadlineExceeded {
+		return newError(channel, mailer.ErrKindNetwork, "邮箱响应超时", err)
+	}
+	return newError(channel, mailer.ErrKindCanceled, "请求已取消", err)
 }
 
 // connect 建立连接、发 ID、鉴权。
@@ -148,9 +165,18 @@ func (c *Client) connect(ctx context.Context, cred mailer.Credential, proxyURL s
 	if err != nil {
 		return nil, err
 	}
+	// IMAP 命令本身不接收 context。让取消关闭本次专属连接，覆盖鉴权、SELECT、FETCH。
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(deadline); err != nil {
+			stopCancel()
+			_ = conn.Close()
+			return nil, newError(c.cfg.Channel, mailer.ErrKindNetwork, "无法设置邮箱连接超时", err)
+		}
+	}
 
 	client := imapclient.New(conn, &imapclient.Options{WordDecoder: wordDecoder})
-	s := &session{imap: client, proxy: proxyURL}
+	s := &session{imap: client, proxy: proxyURL, stopCancel: stopCancel}
 
 	c.identify(client)
 	if err := c.authenticate(ctx, client, cred, proxyURL); err != nil {

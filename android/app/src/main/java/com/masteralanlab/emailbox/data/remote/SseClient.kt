@@ -15,6 +15,9 @@ import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
 
+internal fun presentableSseMessage(raw: String?, fallback: String): String =
+    raw?.takeIf { it.isNotBlank() }?.let(::presentableErrorMessage)?.ifBlank { fallback } ?: fallback
+
 /**
  * 任务进度事件。与后端 `started/progress/item/finished/error` 五种 SSE 事件一一对应。
  */
@@ -112,12 +115,12 @@ object SseClient {
                 } catch (_: CancellationException) {
                     break
                 } catch (e: SseHttpException) {
-                    scope.send(SseEvent.Error(e.message ?: "任务流连接失败"))
+                    scope.send(SseEvent.Error(presentableSseMessage(e.message, "任务流连接失败")))
                     break
                 } catch (e: Exception) {
                     // 连接中断 / 读超时 / 解析异常：交由下面的重连逻辑处理
                     if (e !is IOException && e !is SerializationException) {
-                        scope.send(SseEvent.Error("读取任务流失败：${e.message ?: "连接中断"}"))
+                        scope.send(SseEvent.Error(presentableSseMessage(e.message, "读取任务流失败，请稍后重试")))
                         break
                     }
                 } finally {
@@ -128,7 +131,11 @@ object SseClient {
                 if (terminated) break
 
                 if (attempt >= MAX_RETRY) {
-                    scope.send(SseEvent.Error("与服务器的连接已断开，重试 $MAX_RETRY 次仍未完成"))
+                    scope.send(
+                        SseEvent.Error(
+                            presentableSseMessage(null, "与服务器的连接已断开，重试 $MAX_RETRY 次仍未完成"),
+                        ),
+                    )
                     break
                 }
                 attempt++
@@ -165,18 +172,18 @@ object SseClient {
                 } catch (_: CancellationException) {
                     break
                 } catch (e: NotificationSseHttpException) {
-                    scope.send(MailNotificationEvent.Error(e.status, e.message ?: "通知流连接失败"))
+                    scope.send(MailNotificationEvent.Error(e.status, presentableSseMessage(e.message, "通知流连接失败")))
                     if (e.status in setOf(401, 403, 404)) break
                     attempt++
                     if (attempt > MAX_RETRY) break
                 } catch (e: IOException) {
                     attempt++
                     if (attempt > MAX_RETRY) {
-                        scope.send(MailNotificationEvent.Error(0, "通知流连接已断开"))
+                        scope.send(MailNotificationEvent.Error(0, presentableSseMessage(null, "通知流连接已断开")))
                         break
                     }
                 } catch (e: Exception) {
-                    scope.send(MailNotificationEvent.Error(0, "读取通知流失败"))
+                    scope.send(MailNotificationEvent.Error(0, presentableSseMessage(null, "读取通知流失败")))
                     break
                 } finally {
                     response?.close()
@@ -187,7 +194,7 @@ object SseClient {
                     // EOF 也要走有限退避，避免服务器主动断开时形成忙循环。
                     attempt++
                     if (attempt > MAX_RETRY) {
-                        scope.send(MailNotificationEvent.Error(0, "通知流连接已断开"))
+                        scope.send(MailNotificationEvent.Error(0, presentableSseMessage(null, "通知流连接已断开")))
                         break
                     }
                 }
@@ -360,7 +367,13 @@ object SseClient {
             }
 
             "item" -> AppJson.decodeFromString<SseItem>(payload).let {
-                SseEvent.Item(it.account_id, it.email, it.status, it.error_kind, it.error)
+                SseEvent.Item(
+                    it.account_id,
+                    it.email,
+                    it.status,
+                    it.error_kind,
+                    presentableSseMessage(it.error, ""),
+                )
             }
 
             "finished" -> AppJson.decodeFromString<SseFinished>(payload).let {
@@ -370,12 +383,15 @@ object SseClient {
                     success = it.success,
                     failed = it.failed,
                     skipped = it.skipped,
-                    errorSummary = it.error_summary,
+                    errorSummary = presentableSseMessage(it.error_summary, ""),
                 )
             }
 
             "error" -> SseEvent.Error(
-                AppJson.decodeFromString<SseErrorPayload>(payload).error.ifBlank { "任务执行失败" }
+                presentableSseMessage(
+                    AppJson.decodeFromString<SseErrorPayload>(payload).error,
+                    "任务执行失败",
+                )
             )
 
             else -> null

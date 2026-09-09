@@ -12,12 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Search
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -25,7 +21,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,9 +48,12 @@ import com.masteralanlab.emailbox.ui.components.EmptyBox
 import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.Labels
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductField
+import com.masteralanlab.emailbox.ui.components.ProductSurface
 import com.masteralanlab.emailbox.ui.components.StatusChip
 import com.masteralanlab.emailbox.ui.components.statusContainer
 import com.masteralanlab.emailbox.ui.components.statusContent
+import com.masteralanlab.emailbox.data.remote.presentableErrorMessage
 import com.masteralanlab.emailbox.util.formatFullTime
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -241,9 +239,9 @@ fun RefreshLogsScreen(onBack: () -> Unit) {
 
 @Composable
 private fun FilterPanel(state: RefreshLogsUiState, vm: RefreshLogsViewModel) {
-    Card(
+    ProductSurface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(Modifier.padding(16.dp)) {
             DropdownField(
@@ -259,16 +257,16 @@ private fun FilterPanel(state: RefreshLogsUiState, vm: RefreshLogsViewModel) {
 
             Spacer(Modifier.height(12.dp))
 
-            OutlinedTextField(
+            ProductField(
                 value = state.query,
                 onValueChange = vm::setQuery,
-                label = { Text("按邮箱筛选账号") },
-                placeholder = { Text("输入邮箱关键词后搜索") },
+                label = "按邮箱筛选账号",
+                placeholder = "输入邮箱关键词后搜索",
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                trailingIcon = {
+                leading = { Icon(Ym1rIcons.Search, contentDescription = null) },
+                trailing = {
                     IconButton(onClick = vm::searchAccounts) {
-                        Icon(Icons.Outlined.Search, contentDescription = "搜索账号")
+                        Icon(Ym1rIcons.Search, contentDescription = "搜索账号")
                     }
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -286,7 +284,7 @@ private fun FilterPanel(state: RefreshLogsUiState, vm: RefreshLogsViewModel) {
                         onClick = vm::clearAccount,
                         label = { Text(state.accountLabel ?: state.accountId ?: "") },
                         trailingIcon = {
-                            Icon(Icons.Outlined.Close, contentDescription = "清除账号筛选")
+                            Icon(Ym1rIcons.X, contentDescription = "清除账号筛选")
                         },
                     )
                 }
@@ -354,7 +352,7 @@ private fun RefreshLogRow(log: RefreshLog) {
                     }
                     if (log.error_message.isNotBlank()) {
                         Text(
-                            log.error_message,
+                            presentableErrorMessage(log.error_message),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -1,8 +1,8 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
@@ -17,28 +17,27 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.masteralanlab.emailbox"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.masteralanlab.emailbox"
+        applicationId = "com.masteralanlab.emailbox.next"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 23
-        versionName = "1.4.2"
+        targetSdk = 36
+        versionCode = 79
+        versionName = "1.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        resourceConfigurations += setOf("zh", "en")
+
+        ndk {
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+        }
+    }
+
+    androidResources {
+        localeFilters.addAll(listOf("zh", "en"))
     }
 
     signingConfigs {
-        // 默认的 ~/.android/debug.keystore 在部分环境会因文件锁权限导致构建失败，
-        // 这里显式指向本机自带的调试密钥。
-        getByName("debug") {
-            storeFile = file("${System.getProperty("user.home")}/.workbuddy/binaries/android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
         if (keystorePropsFile.exists()) {
             create("release") {
                 storeFile = file(keystoreProps.getProperty("storeFile"))
@@ -65,6 +64,7 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
+            ndk { abiFilters.add("x86_64") }
             versionNameSuffix = "-debug"
         }
     }
@@ -72,14 +72,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += listOf(
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi"
-        )
     }
 
     packaging {
@@ -98,22 +90,36 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_17
+        freeCompilerArgs.addAll(
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi"
+        )
+    }
+}
+
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    // Compose 1.12 / Material 3 Expressive currently require the API 37
+    // compile toolchain; the app still targets Android 16 (API 36).
+    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
     implementation(composeBom)
 
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.activity:activity-compose:1.9.2")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
+    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.biometric:biometric:1.1.0")
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
+    // MaterialExpressiveTheme and MotionScheme.expressive() are pre-release
+    // APIs, so keep the exact version instead of floating with the BOM.
+    implementation("androidx.compose.material3:material3:1.5.0-alpha27")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.navigation:navigation-compose:2.8.3")
+    implementation("androidx.navigation:navigation-compose:2.10.0")
 
     // 网络
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
@@ -123,13 +129,27 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // 本地存储
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
 
     // 图片预览（附件图片）
     implementation("io.coil-kt:coil-compose:2.6.0")
 
+    // 本地语言识别与翻译；模型按用户动作下载，不调用云端翻译 API。
+    implementation("com.google.mlkit:language-id:17.0.6")
+    implementation("com.google.mlkit:translate:17.0.3")
+
+    // Liquid Glass / Backdrop 效果 (Kyant0/AndroidLiquidGlass)
+    implementation("io.github.kyant0:backdrop-android:2.0.1")
+    implementation("io.github.kyant0:shapes-android:1.2.1")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 
     // 仅测试用：钉住地址规范化、只读请求闸门、HTTP 错误映射与更新清单判定
     testImplementation("junit:junit:4.13.2")

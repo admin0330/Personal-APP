@@ -1,5 +1,7 @@
 package com.masteralanlab.emailbox.data.remote
 
+import kotlinx.coroutines.CancellationException
+
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
@@ -16,6 +18,21 @@ import retrofit2.Response
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+
+private val rawNetworkDetail = Regex(
+    "(?i)(failed to connect|connection refused|connection reset|unable to resolve host|sockettimeout|java\\.net\\.|https?://\\S+|(?<!\\d)(?:\\d{1,3}\\.){3}\\d{1,3}:\\d+)"
+)
+
+/** UI 只接收可行动的本地化文案，不把底层地址、端口或堆栈泄露给用户。 */
+internal fun presentableErrorMessage(raw: String?): String {
+    val text = raw?.trim().orEmpty()
+    if (text.isBlank()) return "操作失败，请稍后重试"
+    if (rawNetworkDetail.containsMatchIn(text)) return "网络连接暂时不可用，请稍后重试"
+    if (text.contains('\n') || text.contains("Exception", ignoreCase = true) || text.startsWith("java.", ignoreCase = true)) {
+        return "操作失败，请稍后重试"
+    }
+    return text
+}
 
 /**
  * 把 Retrofit 调用统一收敛成 ApiResult。
@@ -36,7 +53,7 @@ suspend fun <T : Any> apiCall(
             return@withContext ApiResult.Failure(
                 httpStatus = 200,
                 code = code,
-                message = resp.message ?: "请求失败",
+                message = presentableErrorMessage(resp.message ?: "请求失败"),
                 quotaExceeded = code == 1001,
             )
         }
@@ -45,11 +62,15 @@ suspend fun <T : Any> apiCall(
             ApiResult.Failure(
                 httpStatus = 200,
                 code = code,
-                message = resp.message?.takeIf { code != null && code != 0 } ?: "服务端未返回数据",
+                message = presentableErrorMessage(
+                    resp.message?.takeIf { code != null && code != 0 } ?: "服务端未返回数据",
+                ),
             )
         } else {
             ApiResult.Success(data)
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: HttpException) {
         parseHttpError(e)
     } catch (_: ReadOnlyBlockedException) {
@@ -59,11 +80,11 @@ suspend fun <T : Any> apiCall(
     } catch (e: SocketTimeoutException) {
         ApiResult.Failure(0, null, "请求超时，上游邮件服务可能较慢", cause = e)
     } catch (e: IOException) {
-        ApiResult.Failure(0, null, "网络异常：${e.message ?: "连接中断"}", cause = e)
+        ApiResult.Failure(0, null, "网络连接暂时不可用，请稍后重试", cause = e)
     } catch (e: SerializationException) {
         ApiResult.Failure(0, null, "服务端返回了无法解析的内容，请确认服务器地址指向 Emailbox", cause = e)
     } catch (e: Exception) {
-        ApiResult.Failure(0, null, e.message ?: "未知错误", cause = e)
+        ApiResult.Failure(0, null, "操作失败，请稍后重试", cause = e)
     }
 }
 
@@ -75,9 +96,16 @@ suspend fun apiCallUnit(
         val resp = ApiClient.service().block()
         val code = resp.code
         if (code != null && code != 0) {
-            return@withContext ApiResult.Failure(200, code, resp.message ?: "请求失败", quotaExceeded = code == 1001)
+            return@withContext ApiResult.Failure(
+                200,
+                code,
+                presentableErrorMessage(resp.message ?: "请求失败"),
+                quotaExceeded = code == 1001,
+            )
         }
         ApiResult.Success(Unit)
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: HttpException) {
         parseHttpError(e)
     } catch (_: ReadOnlyBlockedException) {
@@ -87,11 +115,11 @@ suspend fun apiCallUnit(
     } catch (e: SocketTimeoutException) {
         ApiResult.Failure(0, null, "请求超时", cause = e)
     } catch (e: IOException) {
-        ApiResult.Failure(0, null, "网络异常：${e.message ?: "连接中断"}", cause = e)
+        ApiResult.Failure(0, null, "网络连接暂时不可用，请稍后重试", cause = e)
     } catch (e: SerializationException) {
         ApiResult.Failure(0, null, "服务端返回了无法解析的内容，请确认服务器地址指向 Emailbox", cause = e)
     } catch (e: Exception) {
-        ApiResult.Failure(0, null, e.message ?: "未知错误", cause = e)
+        ApiResult.Failure(0, null, "操作失败，请稍后重试", cause = e)
     }
 }
 
@@ -142,7 +170,7 @@ internal fun parseHttpFailure(
     if (status == 401 && code == null) {
         SessionBus.emitExpired(
             if (apiKeyMode) "API Key 无效或已重置，请重新绑定"
-            else message ?: "登录已失效，请重新登录",
+            else presentableErrorMessage(message ?: "登录已失效，请重新登录"),
         )
     }
 
@@ -164,7 +192,7 @@ internal fun parseHttpFailure(
     return ApiResult.Failure(
         httpStatus = status,
         code = code,
-        message = msg,
+        message = presentableErrorMessage(msg),
         upstream = upstream,
         sessionExpired = status == 401 && code == null,
         quotaExceeded = code == 1001,
@@ -182,4 +210,30 @@ private fun upstreamMessage(message: String?, upstream: UpstreamError?): String 
         else -> message?.takeIf { it.isNotBlank() } ?: "服务商暂时不可用，请稍后再试"
     }
     return "上游邮箱读取失败：$action"
+}
+
+/**
+ * 具有指数退避自动重试机制的 apiCall，专用于高频只读请求（邮件列表、账号概览、账本汇总）。
+ * 当遇到暂时性网络超时或连接重置时，自动重试最多 maxRetries 次。
+ */
+suspend fun <T : Any> apiCallWithRetry(
+    maxRetries: Int = 2,
+    initialDelayMs: Long = 300L,
+    block: suspend ApiService.() -> ApiResp<T>,
+): ApiResult<T> {
+    var currentDelay = initialDelayMs
+    repeat(maxRetries) {
+        when (val res = apiCall(block)) {
+            is ApiResult.Success -> return res
+            is ApiResult.Failure -> {
+                val isTransient = res.cause is SocketTimeoutException ||
+                    res.cause is IOException ||
+                    res.httpStatus in 502..504
+                if (!isTransient) return res
+                kotlinx.coroutines.delay(currentDelay)
+                currentDelay *= 2
+            }
+        }
+    }
+    return apiCall(block)
 }

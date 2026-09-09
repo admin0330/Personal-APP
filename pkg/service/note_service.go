@@ -37,7 +37,7 @@ func (s *NoteService) Create(ctx context.Context, tenantID string, req model.Cre
 	if err := validateNote(req.Title, req.Content); err != nil {
 		return nil, err
 	}
-	v := &model.Note{ID: uuid.NewString(), TenantID: tenantID, Title: req.Title, Content: req.Content, IsPinned: req.IsPinned}
+	v := &model.Note{ID: uuid.NewString(), TenantID: tenantID, Title: req.Title, Content: req.Content, IsPinned: req.IsPinned, IsCompleted: req.IsCompleted}
 	if err := s.store.CreateNote(ctx, v); err != nil {
 		return nil, err
 	}
@@ -57,6 +57,9 @@ func (s *NoteService) Update(ctx context.Context, tenantID, id string, req model
 	}
 	if req.IsPinned != nil {
 		v.IsPinned = *req.IsPinned
+	}
+	if req.IsCompleted != nil {
+		v.IsCompleted = *req.IsCompleted
 	}
 	if err := validateNote(v.Title, v.Content); err != nil {
 		return nil, err

@@ -18,10 +18,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -30,7 +26,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -47,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -64,6 +60,7 @@ import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.GroupPicker
 import com.masteralanlab.emailbox.ui.components.Labels
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductField
 import com.masteralanlab.emailbox.ui.components.RadioOptionList
 import com.masteralanlab.emailbox.ui.components.SectionTitle
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -420,9 +417,9 @@ private fun ImportForm(
             trailingContent = {
                 Icon(
                     imageVector = if (d.advancedExpanded) {
-                        Icons.Outlined.ExpandLess
+                        Ym1rIcons.ChevronUp
                     } else {
-                        Icons.Outlined.ExpandMore
+                        Ym1rIcons.ChevronDown
                     },
                     contentDescription = if (d.advancedExpanded) "收起" else "展开",
                 )
@@ -445,33 +442,33 @@ private fun ImportForm(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 HorizontalDivider()
-                OutlinedTextField(
+                ProductField(
                     value = d.imapHost,
                     onValueChange = { mutate { copy(imapHost = it) } },
-                    label = { Text("IMAP 服务器") },
+                    label = "IMAP 服务器",
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    supportingText = { Text("留空则按服务商默认值") },
+                    supporting = "留空则按服务商默认值",
                 )
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                ProductField(
                     value = d.imapPort,
                     onValueChange = { mutate { copy(imapPort = it) } },
-                    label = { Text("IMAP 端口") },
+                    label = "IMAP 端口",
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    supportingText = { Text("留空则按服务商默认值（993）") },
+                    supporting = "留空则按服务商默认值（993）",
                 )
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                ProductField(
                     value = d.defaultRemark,
                     onValueChange = { mutate { copy(defaultRemark = it) } },
-                    label = { Text("默认备注") },
+                    label = "默认备注",
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    supportingText = { Text("写入这批导入账号的 remark") },
+                    supporting = "写入这批导入账号的 remark",
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -506,7 +503,7 @@ private fun ImportForm(
                         onPasteContent(text)
                     }
                 }) {
-                    Icon(Icons.Outlined.ContentPaste, contentDescription = null)
+                    Icon(Ym1rIcons.Copy, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
                     Text("从剪贴板粘贴")
                 }
@@ -514,14 +511,15 @@ private fun ImportForm(
                     Text("插入示例行")
                 }
             }
-            OutlinedTextField(
+            ProductField(
                 value = d.content,
                 onValueChange = { mutate { copy(content = it) } },
-                label = { Text("账号内容") },
+                label = "账号内容",
+                placeholder = "每行一个账号",
                 modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
-                supportingText = {
-                    Text("每行一个账号，当前格式：${sampleLine(d.format)}")
-                },
+                minLines = 8,
+                singleLine = false,
+                supporting = "每行一个账号，当前格式：${sampleLine(d.format)}",
             )
         }
     }

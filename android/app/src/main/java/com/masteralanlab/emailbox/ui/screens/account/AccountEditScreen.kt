@@ -15,9 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,7 +23,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -43,6 +40,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -60,7 +60,12 @@ import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.GroupPicker
 import com.masteralanlab.emailbox.ui.components.Labels
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductField
 import com.masteralanlab.emailbox.ui.components.SectionTitle
+import com.masteralanlab.emailbox.ui.components.InitialAvatar
+import com.masteralanlab.emailbox.util.initialOf
+import coil.compose.AsyncImage
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -451,22 +456,53 @@ private fun AccountForm(
             .verticalScroll(rememberScrollState())
             .padding(bottom = 24.dp),
     ) {
+        if (isEdit && account != null) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    InitialAvatar(
+                        text = initialOf(account.email),
+                        modifier = Modifier.size(52.dp),
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            account.email,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "账号标识：${initialOf(account.email)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+
         SectionTitle("基本信息")
         Column(Modifier.padding(horizontal = 16.dp)) {
-            OutlinedTextField(
+            ProductField(
                 value = d.email,
                 onValueChange = { mutate { copy(email = it) } },
-                label = { Text("邮箱") },
+                label = "邮箱",
+                placeholder = "name@example.com",
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 enabled = !isEdit,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                supportingText = {
-                    Text(
-                        if (isEdit) "邮箱创建后不可修改"
-                        else "必填；服务商与 IMAP 服务器留空时按域名自动推断",
-                    )
-                },
+                supporting = if (isEdit) "邮箱创建后不可修改" else "必填；服务商与 IMAP 服务器留空时按域名自动推断",
             )
             Spacer(Modifier.height(12.dp))
 
@@ -514,13 +550,15 @@ private fun AccountForm(
             )
             Spacer(Modifier.height(12.dp))
 
-            OutlinedTextField(
+            ProductField(
                 value = d.remark,
                 onValueChange = { if (it.length <= MAX_REMARK) mutate { copy(remark = it) } },
-                label = { Text("备注") },
+                label = "备注",
+                placeholder = "可选",
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2,
-                supportingText = { Text("${d.remark.length}/$MAX_REMARK") },
+                singleLine = false,
+                supporting = "${d.remark.length}/$MAX_REMARK",
             )
         }
 
@@ -602,18 +640,15 @@ private fun AccountForm(
 
         SectionTitle("别名")
         Column(Modifier.padding(horizontal = 16.dp)) {
-            OutlinedTextField(
+            ProductField(
                 value = d.aliasesText,
                 onValueChange = { mutate { copy(aliasesText = it) } },
-                label = { Text("别名列表") },
+                label = "别名列表",
+                placeholder = "一行一个别名",
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
-                supportingText = {
-                    Text(
-                        "一行一个，也可用逗号或分号分隔；最多 $MAX_ALIASES 个" +
-                            "（当前 ${parseAliases(d.aliasesText).size} 个）"
-                    )
-                },
+                singleLine = false,
+                supporting = "一行一个，也可用逗号或分号分隔；最多 $MAX_ALIASES 个（当前 ${parseAliases(d.aliasesText).size} 个）",
             )
             ClearToggle(
                 text = "清空别名",
@@ -683,28 +718,28 @@ private fun CredentialField(
     val hint = supporting ?: if (isEdit) (if (saved) "已保存" else "未设置") else null
 
     Column(Modifier.fillMaxWidth()) {
-        OutlinedTextField(
+        ProductField(
             value = value,
             onValueChange = onValueChange,
-            label = { Text(label) },
+            label = label,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             enabled = !clearChecked,
-            placeholder = if (isEdit && saved) ({ Text("留空保持不变") }) else null,
+            placeholder = if (isEdit && saved) "留空保持不变" else null,
             visualTransformation = if (secret && !visible) {
                 PasswordVisualTransformation()
             } else {
                 VisualTransformation.None
             },
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            trailingIcon = if (secret) {
+            trailing = if (secret) {
                 {
                     IconButton(onClick = { visible = !visible }) {
                         Icon(
                             imageVector = if (visible) {
-                                Icons.Outlined.Visibility
+                                Ym1rIcons.Eye
                             } else {
-                                Icons.Outlined.VisibilityOff
+                                Ym1rIcons.EyeOff
                             },
                             contentDescription = if (visible) "隐藏" else "显示",
                         )
@@ -713,7 +748,7 @@ private fun CredentialField(
             } else {
                 null
             },
-            supportingText = if (hint == null) null else ({ Text(hint) }),
+            supporting = hint,
         )
         if (isEdit) {
             ClearToggle(text = "清除", checked = clearChecked, onCheckedChange = onClearChange)
@@ -741,16 +776,16 @@ private fun ProxyField(
         "当前：$masked，留空保持不变"
     }
     Column(Modifier.fillMaxWidth()) {
-        OutlinedTextField(
+        ProductField(
             value = value,
             onValueChange = onValueChange,
-            label = { Text(label) },
+            label = label,
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             enabled = !clearChecked,
-            placeholder = if (isEdit) ({ Text("留空保持不变") }) else null,
+            placeholder = if (isEdit) "留空保持不变" else null,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            supportingText = if (supporting == null) null else ({ Text(supporting) }),
+            supporting = supporting,
         )
         if (isEdit) {
             ClearToggle(text = "清除", checked = clearChecked, onCheckedChange = onClearChange)

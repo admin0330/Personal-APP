@@ -14,6 +14,7 @@ import kotlinx.serialization.encodeToString
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
+import java.security.MessageDigest
 import java.time.Instant
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -28,6 +29,7 @@ data class CachedMail(
     val detail: MessageDetail?,
     val category: String,
     val otp: String?,
+    val analysisVersion: Int = MailIntelligence.PARSER_VERSION,
 )
 
 data class MailSearchFilters(
@@ -46,6 +48,12 @@ data class MailCacheStats(
     val lastSyncAt: Long,
 )
 
+data class CachedTranslation(
+    val text: String,
+    val sourceHash: String,
+    val modelVersion: Int,
+)
+
 object SecureMailCache {
     private const val KEY_ALIAS = "ym1r_mail_cache_v1"
     private const val DB_NAME = "mail-cache.db"
@@ -54,9 +62,17 @@ object SecureMailCache {
     private const val MAX_BYTES = 200L * 1024L * 1024L
     private const val IV_BYTES = 12
     private const val TAG_BITS = 128
+    private const val TRANSLATION_MODEL_VERSION = 1
 
     @Serializable
     private data class Payload(val item: MessageItem, val detail: MessageDetail? = null)
+
+    @Serializable
+    private data class TranslationPayload(
+        val text: String,
+        val sourceHash: String,
+        val modelVersion: Int,
+    )
 
     private lateinit var db: SQLiteDatabase
     private lateinit var appContext: Context
@@ -85,16 +101,38 @@ object SecureMailCache {
                 PRIMARY KEY (tenant, account_id, folder, id_mode, message_id)
             )""".trimIndent(),
         )
+        // Existing installs keep their encrypted payloads; only the parser marker is migrated.
+        runCatching {
+            db.execSQL("ALTER TABLE mail_cache ADD COLUMN analysis_version INTEGER NOT NULL DEFAULT 1")
+        }
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS translation_cache (
+                tenant TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                folder TEXT NOT NULL,
+                id_mode TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                source_hash TEXT NOT NULL,
+                payload BLOB NOT NULL,
+                cached_at INTEGER NOT NULL,
+                PRIMARY KEY (tenant, account_id, folder, id_mode, message_id, source_hash)
+            )""".trimIndent(),
+        )
         db.execSQL("CREATE INDEX IF NOT EXISTS mail_cache_recent ON mail_cache(tenant, received_epoch DESC)")
         db.execSQL("CREATE INDEX IF NOT EXISTS mail_cache_category ON mail_cache(tenant, category, received_epoch DESC)")
     }
 
     @Synchronized
-    fun putMessages(tenant: String, accountId: String, items: List<MessageItem>) {
+    fun putMessages(
+        tenant: String,
+        accountId: String,
+        items: List<MessageItem>,
+        insights: Map<String, MailInsight> = emptyMap(),
+    ) {
         if (!Prefs.offlineCacheEnabled || items.isEmpty()) return
         db.beginTransaction()
         try {
-            items.forEach { item -> put(tenant, accountId, item, null) }
+            items.forEach { item -> put(tenant, accountId, item, null, insights[MailIntelligence.insightKey(item)]) }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -104,7 +142,7 @@ object SecureMailCache {
     }
 
     @Synchronized
-    fun putDetail(tenant: String, accountId: String, detail: MessageDetail) {
+    fun putDetail(tenant: String, accountId: String, detail: MessageDetail, insight: MailInsight? = null) {
         if (!Prefs.offlineCacheEnabled) return
         val item = MessageItem(
             id = detail.id, id_mode = detail.id_mode, folder = detail.folder,
@@ -112,18 +150,23 @@ object SecureMailCache {
             received_at = detail.received_at, is_read = detail.is_read,
             has_attachments = detail.has_attachments, body_preview = detail.body_preview,
         )
-        put(tenant, accountId, item, detail)
+        put(tenant, accountId, item, detail, insight)
         prune(tenant)
         MailStatusWidget.updateAll(appContext)
     }
 
     @Synchronized
     fun messages(tenant: String, accountId: String, folder: String, limit: Int = 100): List<MessageItem> =
+        cached(tenant, accountId, folder, limit)
+            .map { it.item }
+
+    @Synchronized
+    fun cached(tenant: String, accountId: String, folder: String, limit: Int = 100): List<CachedMail> =
         queryRows(
             "tenant=? AND account_id=? AND folder=?",
             arrayOf(tenant, accountId, folder),
             limit,
-        ).map { it.item }
+        )
 
     @Synchronized
     fun detail(tenant: String, accountId: String, folder: String, idMode: String, messageId: String): MessageDetail? =
@@ -175,14 +218,79 @@ object SecureMailCache {
 
     @Synchronized
     fun clear(tenant: String? = null) {
-        if (tenant == null) db.delete("mail_cache", null, null)
-        else db.delete("mail_cache", "tenant=?", arrayOf(tenant))
+        if (tenant == null) {
+            db.delete("mail_cache", null, null)
+            db.delete("translation_cache", null, null)
+        } else {
+            db.delete("mail_cache", "tenant=?", arrayOf(tenant))
+            db.delete("translation_cache", "tenant=?", arrayOf(tenant))
+        }
         MailStatusWidget.updateAll(appContext)
     }
 
-    private fun put(tenant: String, accountId: String, item: MessageItem, detail: MessageDetail?) {
+    @Synchronized
+    fun translation(
+        tenant: String,
+        accountId: String,
+        folder: String,
+        idMode: String,
+        messageId: String,
+        source: String,
+    ): CachedTranslation? {
+        val sourceHash = sha256(source)
+        db.query(
+            "translation_cache",
+            arrayOf("source_hash", "payload"),
+            "tenant=? AND account_id=? AND folder=? AND id_mode=? AND message_id=? AND source_hash=?",
+            arrayOf(tenant, accountId, folder, idMode, messageId, sourceHash),
+            null, null, null, "1",
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return null
+            return runCatching {
+                AppJson.decodeFromString<TranslationPayload>(
+                    decrypt(
+                        cursor.getBlob(1),
+                        translationAad(tenant, accountId, folder, idMode, messageId, sourceHash),
+                    ),
+                ).takeIf { it.modelVersion == TRANSLATION_MODEL_VERSION }
+            }.getOrNull()?.let { CachedTranslation(it.text, it.sourceHash, it.modelVersion) }
+        }
+    }
+
+    @Synchronized
+    fun putTranslation(
+        tenant: String,
+        accountId: String,
+        folder: String,
+        idMode: String,
+        messageId: String,
+        source: String,
+        text: String,
+    ) {
+        if (!Prefs.offlineCacheEnabled || text.isBlank()) return
+        val sourceHash = sha256(source)
+        val payload = TranslationPayload(text, sourceHash, TRANSLATION_MODEL_VERSION)
+        val encrypted = encrypt(
+            AppJson.encodeToString(payload),
+            translationAad(tenant, accountId, folder, idMode, messageId, sourceHash),
+        )
+        val values = ContentValues().apply {
+            put("tenant", tenant); put("account_id", accountId); put("folder", folder)
+            put("id_mode", idMode); put("message_id", messageId); put("source_hash", sourceHash)
+            put("payload", encrypted); put("cached_at", System.currentTimeMillis())
+        }
+        db.insertWithOnConflict("translation_cache", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    private fun put(
+        tenant: String,
+        accountId: String,
+        item: MessageItem,
+        detail: MessageDetail?,
+        cachedInsight: MailInsight? = null,
+    ) {
         val override = Prefs.categoryOverride(item.from)
-        val insight = MailIntelligence.analyze(item, detail?.body.orEmpty(), override)
+        val insight = cachedInsight ?: MailIntelligence.analyze(item, detail?.body.orEmpty(), override)
         val aad = aad(tenant, accountId, item.folder, item.id_mode, item.id)
         val payload = encrypt(AppJson.encodeToString(Payload(item, detail)), aad)
         val values = ContentValues().apply {
@@ -191,6 +299,7 @@ object SecureMailCache {
             put("received_epoch", parseEpoch(item.received_at)); put("unread", if (item.is_read) 0 else 1)
             put("has_attachments", if (item.has_attachments) 1 else 0); put("category", insight.category)
             if (insight.otp == null) putNull("otp") else put("otp", insight.otp)
+            put("analysis_version", MailIntelligence.PARSER_VERSION)
             put("payload", payload); put("byte_size", payload.size); put("cached_at", System.currentTimeMillis())
         }
         db.insertWithOnConflict("mail_cache", null, values, SQLiteDatabase.CONFLICT_REPLACE)
@@ -198,20 +307,54 @@ object SecureMailCache {
 
     private fun queryRows(where: String, args: Array<String>, limit: Int): List<CachedMail> {
         val out = mutableListOf<CachedMail>()
+        val stale = mutableListOf<Pair<Array<String>, MailInsight>>()
         db.query(
             "mail_cache",
-            arrayOf("tenant", "account_id", "folder", "id_mode", "message_id", "category", "otp", "payload"),
+            arrayOf("tenant", "account_id", "folder", "id_mode", "message_id", "category", "otp", "analysis_version", "payload"),
             where, args, null, null, "received_epoch DESC", limit.toString(),
         ).use { c ->
             while (c.moveToNext()) {
                 val tenant = c.getString(0); val account = c.getString(1)
                 val folder = c.getString(2); val idMode = c.getString(3); val id = c.getString(4)
                 val payload = runCatching {
-                    val json = decrypt(c.getBlob(7), aad(tenant, account, folder, idMode, id))
+                    val json = decrypt(c.getBlob(8), aad(tenant, account, folder, idMode, id))
                     AppJson.decodeFromString<Payload>(json)
                 }.getOrNull() ?: continue
-                out += CachedMail(tenant, account, payload.item, payload.detail, c.getString(5), c.getString(6))
+                val storedVersion = c.getInt(7)
+                val storedInsight = if (storedVersion == MailIntelligence.PARSER_VERSION) {
+                    MailInsight(c.getString(5), c.getString(6))
+                } else {
+                    MailIntelligence.analyze(
+                        payload.item,
+                        payload.detail?.body.orEmpty(),
+                        Prefs.categoryOverride(payload.item.from),
+                    )
+                }
+                val rowKey = arrayOf(tenant, account, folder, idMode, id)
+                if (storedVersion != MailIntelligence.PARSER_VERSION) stale += rowKey to storedInsight
+                out += CachedMail(
+                    tenant,
+                    account,
+                    payload.item,
+                    payload.detail,
+                    storedInsight.category,
+                    storedInsight.otp,
+                    MailIntelligence.PARSER_VERSION,
+                )
             }
+        }
+        stale.forEach { (rowKey, insight) ->
+            val values = ContentValues().apply {
+                put("category", insight.category)
+                if (insight.otp == null) putNull("otp") else put("otp", insight.otp)
+                put("analysis_version", MailIntelligence.PARSER_VERSION)
+            }
+            db.update(
+                "mail_cache",
+                values,
+                "tenant=? AND account_id=? AND folder=? AND id_mode=? AND message_id=?",
+                rowKey,
+            )
         }
         return out
     }
@@ -229,7 +372,7 @@ object SecureMailCache {
         }
         db.execSQL(
             "DELETE FROM mail_cache WHERE rowid IN (SELECT rowid FROM mail_cache WHERE tenant=? ORDER BY received_epoch DESC LIMIT -1 OFFSET ?)",
-            arrayOf(tenant, MAX_GLOBAL),
+            arrayOf<Any>(tenant, MAX_GLOBAL),
         )
         while (stats(tenant).bytes > MAX_BYTES) {
             db.execSQL(
@@ -269,6 +412,19 @@ object SecureMailCache {
 
     private fun aad(tenant: String, account: String, folder: String, idMode: String, id: String) =
         "$tenant\u0000$account\u0000$folder\u0000$idMode\u0000$id".toByteArray(StandardCharsets.UTF_8)
+
+    private fun translationAad(
+        tenant: String,
+        account: String,
+        folder: String,
+        idMode: String,
+        id: String,
+        sourceHash: String,
+    ) = aad(tenant, account, folder, idMode, id) + sourceHash.toByteArray(StandardCharsets.UTF_8)
+
+    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(StandardCharsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
 
     private fun parseEpoch(value: String): Long = runCatching { Instant.parse(value).epochSecond }.getOrDefault(0L)
 }

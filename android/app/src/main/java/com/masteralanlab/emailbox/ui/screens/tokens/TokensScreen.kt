@@ -16,12 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Search
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,7 +27,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,11 +55,12 @@ import com.masteralanlab.emailbox.data.remote.SubmitRefreshRequest
 import com.masteralanlab.emailbox.data.remote.apiCall
 import com.masteralanlab.emailbox.data.remote.ApiResult
 import com.masteralanlab.emailbox.ui.components.AppTopBar
-import com.masteralanlab.emailbox.ui.components.MainTopBar
 import com.masteralanlab.emailbox.ui.components.EmptyBox
 import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.Labels
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductField
+import com.masteralanlab.emailbox.ui.components.ProductSurface
 import com.masteralanlab.emailbox.ui.components.RadioOptionList
 import com.masteralanlab.emailbox.ui.components.SectionTitle
 import com.masteralanlab.emailbox.ui.components.StatusChip
@@ -361,6 +357,7 @@ class TokensViewModel(app: android.app.Application) : androidx.lifecycle.Android
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TokensScreen(
+    onBack: () -> Unit,
     onOpenJob: (String) -> Unit,
     onOpenLogs: () -> Unit,
 ) {
@@ -373,11 +370,12 @@ fun TokensScreen(
 
     Scaffold(
         topBar = {
-            MainTopBar(
+            AppTopBar(
                 title = "令牌",
+                onBack = onBack,
                 actions = {
                     IconButton(onClick = vm::refresh) {
-                        Icon(Icons.Outlined.Refresh, contentDescription = "刷新")
+                        Icon(Ym1rIcons.RefreshCw, contentDescription = "刷新")
                     }
                 },
             )
@@ -454,29 +452,26 @@ private fun StatsCard(stats: RefreshStats?, onOpenJob: (String) -> Unit) {
 
 @Composable
 private fun StatsMainCard(stats: RefreshStats) {
-    Card(
+    ProductSurface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth()) {
-                StatCell("总数", stats.total, MaterialTheme.colorScheme.onPrimary)
-                StatCell("成功", stats.success, MaterialTheme.colorScheme.onPrimary)
-                StatCell("失败", stats.failed, MaterialTheme.colorScheme.onPrimary)
-                StatCell("未刷新", stats.never, MaterialTheme.colorScheme.onPrimary)
+                StatCell("总数", stats.total, MaterialTheme.colorScheme.onSurface)
+                StatCell("成功", stats.success, MaterialTheme.colorScheme.primary)
+                StatCell("失败", stats.failed, MaterialTheme.colorScheme.error)
+                StatCell("未刷新", stats.never, MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             val kinds = stats.by_error_kind.entries.sortedByDescending { it.value }
             if (kinds.isNotEmpty()) {
-                HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                HorizontalDivider(Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 Text(
                     "失败原因",
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(6.dp))
                 kinds.forEach { (kind, count) ->
@@ -493,7 +488,7 @@ private fun StatsMainCard(stats: RefreshStats) {
                         Text(
                             "$count",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -504,33 +499,32 @@ private fun StatsMainCard(stats: RefreshStats) {
 
 @Composable
 private fun LastJobCard(job: Job, onClick: () -> Unit) {
-    Card(
+    ProductSurface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        onClick = onClick,
     ) {
-        ListItem(
-            headlineContent = {
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
                 Text("最近一次：${jobTypeText(job.type)}", style = MaterialTheme.typography.bodyLarge)
-            },
-            supportingContent = {
                 Text(
                     "成功 ${job.success_count} · 失败 ${job.failed_count} · 共 ${job.total_count}" +
                         "｜${jobTriggerText(job.trigger)}｜${formatShortTime(job.created_at)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            },
-            trailingContent = {
-                StatusChip(
-                    text = Labels.jobStatus(job.status),
-                    container = statusContainer(job.status),
-                    content = statusContent(job.status),
-                )
-            },
-        )
+            }
+            Spacer(Modifier.width(12.dp))
+            StatusChip(
+                text = Labels.jobStatus(job.status),
+                container = statusContainer(job.status),
+                content = statusContent(job.status),
+            )
+        }
     }
 }
 
@@ -554,9 +548,9 @@ private fun RowScope.StatCell(label: String, value: Int, color: Color) {
 
 @Composable
 private fun SubmitCard(state: TokensUiState, vm: TokensViewModel) {
-    Card(
+    ProductSurface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(Modifier.padding(vertical = 8.dp)) {
             SectionTitle("提交刷新任务")
@@ -597,7 +591,7 @@ private fun SubmitCard(state: TokensUiState, vm: TokensViewModel) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                     Spacer(Modifier.width(10.dp))
                 }
@@ -652,15 +646,18 @@ private fun GroupSelector(state: TokensUiState, vm: TokensViewModel) {
 @Composable
 private fun AccountSelector(state: TokensUiState, vm: TokensViewModel) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        OutlinedTextField(
+        ProductField(
             value = state.accountQuery,
             onValueChange = vm::setAccountQuery,
-            label = { Text("搜索邮箱") },
+            label = "搜索邮箱",
+            placeholder = "按地址查找账号",
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            trailingIcon = {
+            leading = {
+                Icon(Ym1rIcons.Search, contentDescription = null)
+            },
+            trailing = {
                 IconButton(onClick = vm::searchAccounts) {
-                    Icon(Icons.Outlined.Search, contentDescription = "搜索")
+                    Icon(Ym1rIcons.Search, contentDescription = "搜索")
                 }
             },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),

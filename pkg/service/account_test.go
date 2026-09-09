@@ -5,15 +5,92 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"emailbox/configs"
 	"emailbox/pkg/crypto"
+	"emailbox/pkg/mailer"
 	"emailbox/pkg/model"
 	"emailbox/pkg/quota"
 	"emailbox/pkg/repo"
 	"emailbox/pkg/service"
 )
+
+type notificationBlockingClient struct {
+	mailer.Client
+	started chan string
+	release chan struct{}
+}
+
+func (c *notificationBlockingClient) List(ctx context.Context, cred mailer.Credential, opt mailer.ListOptions) ([]mailer.Message, error) {
+	c.started <- cred.Email
+	select {
+	case <-c.release:
+		return []mailer.Message{{ID: "1", Folder: opt.Folder, IDMode: mailer.IDModeUID}}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func TestNotificationPollingUsesTwoBoundedWorkers(t *testing.T) {
+	svc, store, tenant := accountFixture(t)
+	for i := range 3 {
+		if _, err := svc.Create(context.Background(), tenant, model.CreateMailAccountRequest{Email: fmt.Sprintf("reader%d@163.com", i), Password: "app-password"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cipher, _ := crypto.New("0123456789abcdef0123456789abcdef")
+	client := &notificationBlockingClient{started: make(chan string, 3), release: make(chan struct{})}
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(client.release) }) }
+	defer unblock()
+	messages := service.NewMessageService(store, cipher, quota.NewService(store), service.ChainOptions{}).WithChainFactory(func(*model.MailAccount) mailer.Client { return client })
+	notifications := service.NewMailNotificationService(store, messages, time.Hour)
+	defer notifications.Close()
+	_, unsubscribe := notifications.Subscribe(tenant)
+	defer unsubscribe()
+	for range 2 {
+		select {
+		case <-client.started:
+		case <-time.After(time.Second):
+			t.Fatal("second account blocked behind first account")
+		}
+	}
+	select {
+	case <-client.started:
+		t.Fatal("more than two upstream requests started")
+	case <-time.After(40 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("free worker did not pick up third account")
+	}
+}
+
+func TestPasswordIMAPSuccessDoesNotWriteOAuthChannel(t *testing.T) {
+	svc, store, tenant := accountFixture(t)
+	ctx := context.Background()
+	a, err := svc.Create(ctx, tenant, model.CreateMailAccountRequest{Email: "reader@163.com", Password: "app-password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipher, _ := crypto.New("0123456789abcdef0123456789abcdef")
+	messages := service.NewMessageService(store, cipher, quota.NewService(store), service.ChainOptions{})
+	messages.OnChannelSuccess(ctx, tenant, a.ID, "", mailer.ChannelIMAP)
+	current, err := store.GetMailAccount(ctx, tenant, a.ID)
+	if err != nil || current.AuthChannel != "" {
+		t.Fatalf("unexpected channel: %+v, %v", current, err)
+	}
+	messages.OnChannelSuccess(ctx, tenant, a.ID, "", mailer.ChannelGraph)
+	current, err = store.GetMailAccount(ctx, tenant, a.ID)
+	if err != nil || current.AuthChannel != mailer.ChannelGraph {
+		t.Fatalf("OAuth channel not persisted: %+v, %v", current, err)
+	}
+}
 
 func accountFixture(t *testing.T) (*service.AccountService, *repo.Store, string) {
 	t.Helper()

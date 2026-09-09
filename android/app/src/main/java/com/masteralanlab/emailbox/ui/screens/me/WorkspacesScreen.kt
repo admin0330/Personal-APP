@@ -1,5 +1,6 @@
 package com.masteralanlab.emailbox.ui.screens.me
 
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,13 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Business
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,8 +26,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -66,6 +59,8 @@ import com.masteralanlab.emailbox.ui.components.AppTopBar
 import com.masteralanlab.emailbox.ui.components.EmptyBox
 import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductField
+import com.masteralanlab.emailbox.ui.components.ProductSurface
 import com.masteralanlab.emailbox.ui.components.StatusChip
 import com.masteralanlab.emailbox.util.formatFullTime
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -274,8 +269,12 @@ fun WorkspacesScreen(onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = { AppTopBar(title = "工作空间", onBack = onBack) },
         floatingActionButton = {
-            FloatingActionButton(onClick = { creating = true }) {
-                Icon(Icons.Outlined.Add, contentDescription = "新建工作空间")
+            FloatingActionButton(
+                onClick = { creating = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ) {
+                Icon(Ym1rIcons.Plus, contentDescription = "新建工作空间")
             }
         },
     ) { padding ->
@@ -287,7 +286,7 @@ fun WorkspacesScreen(onBack: () -> Unit) {
 
                 tenantList.isEmpty() -> EmptyBox(
                     text = "还没有任何工作空间",
-                    icon = Icons.Outlined.Business,
+                    icon = Ym1rIcons.Folder,
                 )
 
                 else -> PullToRefreshBox(
@@ -387,11 +386,7 @@ private fun TenantCard(
     onDelete: () -> Unit,
 ) {
     val isPersonal = tenant.kind == KIND_PERSONAL
-    OutlinedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-    ) {
+    ProductSurface(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -432,7 +427,7 @@ private fun TenantCard(
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onRename) {
-                    Icon(Icons.Outlined.Edit, contentDescription = null)
+                    Icon(Ym1rIcons.Pencil, contentDescription = null)
                     Spacer(Modifier.width(4.dp))
                     Text("重命名")
                 }
@@ -444,7 +439,7 @@ private fun TenantCard(
                             contentColor = MaterialTheme.colorScheme.error,
                         ),
                     ) {
-                        Icon(Icons.Outlined.Delete, contentDescription = null)
+                        Icon(Ym1rIcons.Trash2, contentDescription = null)
                         Spacer(Modifier.width(4.dp))
                         Text("删除")
                     }
@@ -489,44 +484,41 @@ private fun TenantEditorSheet(
                 style = MaterialTheme.typography.titleMedium,
             )
 
-            OutlinedTextField(
+            ProductField(
                 value = name,
                 onValueChange = { name = it; localError = null },
-                label = { Text("名称") },
+                label = "名称",
+                placeholder = "例如：家庭邮箱",
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
 
-            OutlinedTextField(
+            ProductField(
                 value = slug,
                 onValueChange = { slug = it; localError = null },
-                label = { Text("标识（slug）") },
+                label = "标识（slug）",
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 enabled = !isPersonal,
-                supportingText = {
-                    Text(
-                        if (isPersonal) {
-                            "个人工作空间的标识不可修改"
-                        } else if (isEdit) {
-                            "留空表示不修改"
-                        } else {
-                            "留空时由服务端自动生成"
-                        }
-                    )
+                supporting = if (isPersonal) {
+                    "个人工作空间的标识不可修改"
+                } else if (isEdit) {
+                    "留空表示不修改"
+                } else {
+                    "留空时由服务端自动生成"
                 },
             )
 
             if (localError != null) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         localError ?: "",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     )
                 }

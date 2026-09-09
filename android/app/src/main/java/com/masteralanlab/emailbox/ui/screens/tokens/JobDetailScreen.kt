@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
@@ -45,12 +43,14 @@ import com.masteralanlab.emailbox.data.remote.SseClient
 import com.masteralanlab.emailbox.data.remote.SseEvent
 import com.masteralanlab.emailbox.data.remote.apiCall
 import com.masteralanlab.emailbox.data.remote.apiCallUnit
+import com.masteralanlab.emailbox.data.remote.presentableErrorMessage
 import com.masteralanlab.emailbox.ui.components.AppTopBar
 import com.masteralanlab.emailbox.ui.components.DropdownField
 import com.masteralanlab.emailbox.ui.components.EmptyBox
 import com.masteralanlab.emailbox.ui.components.ErrorBox
 import com.masteralanlab.emailbox.ui.components.Labels
 import com.masteralanlab.emailbox.ui.components.LoadingBox
+import com.masteralanlab.emailbox.ui.components.ProductSurface
 import com.masteralanlab.emailbox.ui.components.SectionTitle
 import com.masteralanlab.emailbox.ui.components.StatusChip
 import com.masteralanlab.emailbox.ui.components.statusContainer
@@ -326,9 +326,9 @@ private fun SummaryCard(state: JobDetailUiState, vm: JobDetailViewModel) {
     val done = state.liveDone.coerceAtMost(total.takeIf { it > 0 } ?: state.liveDone)
     val progress = jobProgressOf(state.liveSuccess, state.liveFailed, total)
 
-    Card(
+    ProductSurface(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -375,7 +375,7 @@ private fun SummaryCard(state: JobDetailUiState, vm: JobDetailViewModel) {
             if (state.finishedSummary != null) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "错误汇总：${state.finishedSummary}",
+                    "错误汇总：${presentableErrorMessage(state.finishedSummary)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -384,7 +384,7 @@ private fun SummaryCard(state: JobDetailUiState, vm: JobDetailViewModel) {
             if (state.streamError != null) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    state.streamError,
+                    presentableErrorMessage(state.streamError),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -463,7 +463,7 @@ private fun LiveEventRow(ev: SseEvent.Item) {
             supportingContent = {
                 val detail = buildList {
                     if (kind.isNotBlank()) add(kind)
-                    if (ev.error.isNotBlank()) add(ev.error)
+                    if (ev.error.isNotBlank()) add(presentableErrorMessage(ev.error))
                 }.joinToString("：")
                 if (detail.isNotBlank()) {
                     Text(
@@ -544,7 +544,7 @@ private fun JobItemRow(item: JobItem) {
             supportingContent = {
                 val parts = buildList {
                     if (kind.isNotBlank()) add(kind)
-                    if (item.error.isNotBlank()) add(item.error)
+                    if (item.error.isNotBlank()) add(presentableErrorMessage(item.error))
                     if (duration.isNotBlank()) add("耗时 $duration")
                     val t = formatShortTime(item.finished_at ?: item.started_at)
                     if (t.isNotBlank()) add(t)

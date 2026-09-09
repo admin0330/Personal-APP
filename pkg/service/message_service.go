@@ -456,7 +456,9 @@ func (s *MessageService) recordResult(
 func (s *MessageService) OnChannelSuccess(
 	ctx context.Context, tenantID, accountID, previousChannel, channel string,
 ) {
-	if channel == "" || channel == previousChannel {
+	// auth_channel 只保存微软 OAuth 回退偏好。密码 IMAP 由 account_type 决定，
+	// 写入 "imap" 会违反数据库约束，且不会改善下次通道选择。
+	if channel == "" || channel == mailer.ChannelIMAP || channel == previousChannel {
 		return
 	}
 	if err := s.store.UpdateMailAccountAuthChannel(ctx, tenantID, accountID, channel); err != nil {

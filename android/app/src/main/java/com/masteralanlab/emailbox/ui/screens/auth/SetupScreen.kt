@@ -1,9 +1,9 @@
 package com.masteralanlab.emailbox.ui.screens.auth
 
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,19 +13,16 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.MailOutline
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -43,23 +40,27 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import android.content.Context
 import com.masteralanlab.emailbox.data.Prefs
+import com.masteralanlab.emailbox.data.SessionManager
 import com.masteralanlab.emailbox.data.remote.ApiClient
 import com.masteralanlab.emailbox.data.remote.ApiResult
 import com.masteralanlab.emailbox.data.remote.LoginRequest
 import com.masteralanlab.emailbox.data.remote.InviteRegisterRequest
 import com.masteralanlab.emailbox.data.remote.RegisterRequest
 import com.masteralanlab.emailbox.data.remote.apiCall
-import com.masteralanlab.emailbox.data.remote.apiCallUnit
 import com.masteralanlab.emailbox.data.remote.isValidBearerValue
 import com.masteralanlab.emailbox.data.remote.normalizeServerUrl
+import com.masteralanlab.emailbox.data.remote.presentableErrorMessage
+import com.masteralanlab.emailbox.R
+import com.masteralanlab.emailbox.ui.components.ProductField
+import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -83,7 +84,7 @@ class SetupViewModel : ViewModel() {
     private fun normalizedServer(raw: String): String? = runCatching {
         normalizeServerUrl(raw)
     }.getOrElse {
-        _message.value = it.message ?: "服务器地址无效"
+        _message.value = presentableErrorMessage(it.message ?: "服务器地址无效")
         null
     }
 
@@ -324,12 +325,8 @@ class SetupViewModel : ViewModel() {
         }
     }
 
-    /** 修改服务器地址后清理旧凭据。 */
-    fun forget() {
-        viewModelScope.launch { apiCallUnit { logout() } }
-        Prefs.clearSession()
-        ApiClient.invalidate()
-    }
+    /** 修改服务器地址或重新绑定前清理旧凭据；远端注销失败也不阻塞本地清理。 */
+    fun forget(context: Context) = SessionManager.logout(context)
 }
 
 @Composable
@@ -356,91 +353,104 @@ fun SetupScreen(onLoggedIn: () -> Unit) {
 
     // 显式铺主题背景：本页没有 Scaffold，不设背景会透出「系统明暗」的窗口底色，
     // 与应用内主题（可独立于系统）不一致时就是用户看到的深浅乱配
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Column(
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Column(
             modifier = Modifier
                 .fillMaxSize()
                 .safeDrawingPadding()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(horizontal = 16.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(28.dp))
-            Surface(
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    Icons.Outlined.MailOutline,
-                    contentDescription = null,
-                    modifier = Modifier.size(72.dp).padding(16.dp),
+                Surface(
+                    modifier = Modifier.size(44.dp),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Ym1rIcons.Mail, contentDescription = null)
+                    }
+                }
+                Spacer(Modifier.size(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("开始使用", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Text("连接你的 Emailbox", style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        if (inviteMode) "使用一次性邀请码创建账号" else "登录你的账号",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("01", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(if (inviteMode) "创建账号" else "登录账号", style = MaterialTheme.typography.titleSmall)
+                    LinearProgressIndicator(progress = { 1f }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Text(
+                stringResource(R.string.setup_credentials),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            ProductField(
+                value = username,
+                onValueChange = { username = it },
+                label = "用户名",
+                placeholder = "输入你的用户名",
+            )
+            if (inviteMode) {
+                Spacer(Modifier.height(10.dp))
+                ProductField(
+                    value = inviteCode,
+                    onValueChange = { inviteCode = it.uppercase() },
+                    label = "一次性邀请码",
+                    placeholder = "粘贴邀请码",
                 )
             }
             Spacer(Modifier.height(10.dp))
-            Text(
-                "Ym1r",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                if (inviteMode) "使用一次性邀请码创建账号" else "登录你的账号",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            Spacer(Modifier.height(28.dp))
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    OutlinedTextField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = { Text("用户名") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (inviteMode) {
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(
-                            value = inviteCode,
-                            onValueChange = { inviteCode = it.uppercase() },
-                            label = { Text("一次性邀请码") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+            ProductField(
+                value = password,
+                onValueChange = { password = it },
+                label = "密码",
+                supporting = "密码不会保存在设备中",
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailing = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            if (passwordVisible) Ym1rIcons.EyeOff else Ym1rIcons.Eye,
+                            contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
                         )
                     }
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("密码") },
-                        singleLine = true,
-                        supportingText = { Text("密码不会保存在设备中") },
-                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Text(if (passwordVisible) "隐藏" else "显示", style = MaterialTheme.typography.labelMedium)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (inviteMode) {
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(
-                            value = confirmPassword,
-                            onValueChange = { confirmPassword = it },
-                            label = { Text("确认密码") },
-                            singleLine = true,
-                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            isError = confirmPassword.isNotEmpty() && confirmPassword != password,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
+                },
+            )
+            if (inviteMode) {
+                Spacer(Modifier.height(10.dp))
+                ProductField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = "确认密码",
+                    isError = confirmPassword.isNotEmpty() && confirmPassword != password,
+                    supporting = if (confirmPassword.isNotEmpty() && confirmPassword != password) "两次输入的密码不一致" else null,
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                )
             }
 
             Spacer(Modifier.height(20.dp))
@@ -476,12 +486,12 @@ fun SetupScreen(onLoggedIn: () -> Unit) {
             }) {
                 Text(if (inviteMode) "已有账号，返回登录" else "有邀请码？创建账号")
             }
-            OutlinedButton(
+            TextButton(
                 onClick = {
                     scope.launch {
                         runCatching { vm.probe(Prefs.DEFAULT_SERVER) }
                             .onSuccess { snackbar.showSnackbar(it) }
-                            .onFailure { snackbar.showSnackbar("连接失败：${it.message ?: "未知错误"}") }
+                            .onFailure { snackbar.showSnackbar(presentableErrorMessage(it.message)) }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -490,12 +500,13 @@ fun SetupScreen(onLoggedIn: () -> Unit) {
             Spacer(Modifier.height(24.dp))
         }
 
-        SnackbarHost(
-            hostState = snackbar,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .safeDrawingPadding()
-                .padding(16.dp),
-        )
+            SnackbarHost(
+                hostState = snackbar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .safeDrawingPadding()
+                    .padding(16.dp),
+            )
+        }
     }
 }

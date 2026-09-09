@@ -1,6 +1,8 @@
 package com.masteralanlab.emailbox
 
 import com.masteralanlab.emailbox.data.remote.parseHttpFailure
+import com.masteralanlab.emailbox.data.remote.presentableErrorMessage
+import com.masteralanlab.emailbox.data.remote.presentableSseMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -9,7 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 与后端约定的错误语义（AGENTS §5.1 / AI_SHARED_CONTEXT §5）：
+ * 与后端约定的错误语义（AGENTS §5.1）：
  * 401 只表示「本次请求的调用方没通过认证」；502 / code=1005 是上游邮箱错误，
  * 绝不能把用户踢回登录页。
  */
@@ -119,5 +121,27 @@ class HttpErrorMappingTest {
         assertEquals("请求失败（HTTP 418）", f.message)
         assertNull(f.upstream)
         assertNotNull(f)
+    }
+
+    @Test
+    fun `raw connection details are sanitized before reaching UI`() {
+        val mapped = parseHttpFailure(
+            500,
+            """{"message":"Failed to connect to /127.0.0.1:9"}""",
+            apiKeyMode = false,
+        )
+        assertEquals("网络连接暂时不可用，请稍后重试", mapped.message)
+        assertFalse(mapped.message.orEmpty().contains("127.0.0.1"))
+        assertFalse(mapped.message.orEmpty().contains(":9"))
+        assertEquals("网络连接暂时不可用，请稍后重试", presentableErrorMessage("Failed to connect to /127.0.0.1:9"))
+    }
+
+    @Test
+    fun `sse payload details are sanitized before reaching UI`() {
+        assertEquals(
+            "网络连接暂时不可用，请稍后重试",
+            presentableSseMessage("java.net.ConnectException: /10.0.0.2:443 refused", "任务失败"),
+        )
+        assertEquals("任务失败", presentableSseMessage("", "任务失败"))
     }
 }

@@ -3,7 +3,10 @@ package com.masteralanlab.emailbox.ui.screens.ledger
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import com.masteralanlab.emailbox.ui.components.appleClickable
+import com.masteralanlab.emailbox.ui.components.appleCombinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -16,32 +19,31 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ChevronLeft
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.foundation.BorderStroke
+import com.masteralanlab.emailbox.ui.components.Ym1rIcons
+import com.masteralanlab.emailbox.ui.components.RollingMoney
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.platform.LocalContext
+import com.masteralanlab.emailbox.util.FileSharing
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -60,6 +62,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.masteralanlab.emailbox.ui.components.UserAvatarButton
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -74,7 +78,12 @@ import com.masteralanlab.emailbox.data.remote.apiCall
 import com.masteralanlab.emailbox.data.remote.apiCallUnit
 import com.masteralanlab.emailbox.ui.components.AppTopBar
 import com.masteralanlab.emailbox.ui.components.MainTopBar
+import com.masteralanlab.emailbox.ui.components.AppleColors
+import com.masteralanlab.emailbox.ui.components.AppleIconSquircle
+import com.masteralanlab.emailbox.ui.components.AppleSegmentedControl
 import com.masteralanlab.emailbox.ui.components.EmptyBox
+import com.masteralanlab.emailbox.ui.components.ProductField
+import com.masteralanlab.emailbox.ui.components.ProductSurface
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -105,6 +114,8 @@ class LedgerViewModel : ViewModel() {
     private val _message = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val message = _message.asSharedFlow()
     private var initialized = false
+    private var loadGeneration = 0L
+    private var flushingPending = false
 
     fun init() {
         if (initialized) return
@@ -118,34 +129,75 @@ class LedgerViewModel : ViewModel() {
     }
 
     fun load() = viewModelScope.launch {
+        val generation = ++loadGeneration
+        load(generation)
+    }
+
+    private suspend fun load(generation: Long) {
         val tenant = Prefs.tenantId.orEmpty()
-        if (tenant.isBlank()) { state.update { it.copy(loading = false, error = "未选择工作空间") }; return@launch }
+        if (tenant.isBlank()) { state.update { it.copy(loading = false, error = "未选择工作空间") }; return }
         val month = state.value.month.toString()
         val local = LedgerLocalStore.load(tenant)
-        if (local.month == month) {
+        if (local.month == month && generation == loadGeneration) {
             // 缓存直显：立即退出加载态，网络结果回来后静默覆盖
             state.update {
                 it.copy(
                     transactions = local.transactions,
                     summary = local.summary,
-                    pending = local.pendingCreates.size,
+                    pending = pendingCount(local),
                     loading = false,
                 )
             }
         }
-        viewModelScope.launch { flushPending(tenant) }
+        if (!flushingPending) {
+            flushingPending = true
+            viewModelScope.launch {
+                try {
+                    flushPending(tenant)
+                } finally {
+                    flushingPending = false
+                }
+            }
+        }
         val list = apiCall { ledgerTransactions(tenant, month) }
         val summary = apiCall { ledgerSummary(tenant, month) }
+        if (generation != loadGeneration) return
         if (list is ApiResult.Success && summary is ApiResult.Success) {
-            val pending = LedgerLocalStore.load(tenant).pendingCreates
-            val data = com.masteralanlab.emailbox.data.LedgerLocalData(tenant, month, list.data, summary.data, pending)
+            val pendingData = LedgerLocalStore.load(tenant)
+            val data = com.masteralanlab.emailbox.data.LedgerLocalData(
+                tenant = tenant,
+                month = month,
+                transactions = list.data,
+                summary = summary.data,
+                pendingCreates = pendingData.pendingCreates,
+                pendingUpdates = pendingData.pendingUpdates,
+                pendingDeletes = pendingData.pendingDeletes,
+            )
             LedgerLocalStore.save(data)
-            state.value = LedgerState(state.value.month, list.data, summary.data, loading = false, pending = pending.size)
+            if (generation == loadGeneration) {
+                state.update {
+                    if (it.month.toString() != month) it
+                    else it.copy(
+                        transactions = list.data,
+                        summary = summary.data,
+                        loading = false,
+                        pending = pendingCount(pendingData),
+                        error = null,
+                    )
+                }
+            }
         } else {
             val error = (list as? ApiResult.Failure)?.message ?: (summary as? ApiResult.Failure)?.message
-            state.update { it.copy(loading = false, pending = LedgerLocalStore.load(tenant).pendingCreates.size, error = error) }
+            if (generation == loadGeneration) {
+                state.update {
+                    it.copy(loading = false, pending = pendingCount(LedgerLocalStore.load(tenant)), error = error)
+                }
+            }
         }
     }
+
+    private fun pendingCount(data: com.masteralanlab.emailbox.data.LedgerLocalData): Int =
+        data.pendingCreates.size + data.pendingUpdates.size + data.pendingDeletes.size
 
     fun create(
         type: String,
@@ -168,7 +220,7 @@ class LedgerViewModel : ViewModel() {
             posted = posted,
         )
         LedgerLocalStore.enqueue(tenant, request)
-        state.update { it.copy(pending = LedgerLocalStore.load(tenant).pendingCreates.size) }
+        state.update { it.copy(pending = pendingCount(LedgerLocalStore.load(tenant))) }
         viewModelScope.launch {
             when (val result = apiCall { createLedgerTransaction(tenant, request) }) {
                 is ApiResult.Success -> {
@@ -183,7 +235,7 @@ class LedgerViewModel : ViewModel() {
                     } else if (result.httpStatus == 0 || result.httpStatus == 429 || result.httpStatus >= 500) {
                         _message.tryEmit("已离线保存，联网后自动同步")
                     } else _message.tryEmit(result.message)
-                    state.update { it.copy(pending = LedgerLocalStore.load(tenant).pendingCreates.size) }
+                    state.update { it.copy(pending = pendingCount(LedgerLocalStore.load(tenant))) }
                 }
             }
         }
@@ -230,6 +282,7 @@ class LedgerViewModel : ViewModel() {
                 is ApiResult.Success -> { LedgerLocalStore.popPendingUpdate(tenant, op); load() }
                 is ApiResult.Failure -> {
                     // 回滚：恢复原记录并提示
+                    LedgerLocalStore.popPendingUpdate(tenant, op)
                     LedgerLocalStore.putTransaction(tenant, item)
                     state.update { current -> current.copy(transactions = current.transactions.map { if (it.id == item.id) item else it }) }
                     _message.tryEmit(result.message)
@@ -247,10 +300,23 @@ class LedgerViewModel : ViewModel() {
             when (val result = apiCallUnit { deleteLedgerTransaction(tenant, item.id) }) {
                 is ApiResult.Success -> { _message.tryEmit("已删除"); load() }
                 is ApiResult.Failure -> {
-                    LedgerLocalStore.putTransaction(tenant, item)
-                    state.update { current -> current.copy(transactions = current.transactions.map { if (it.id == item.id) item else it }) }
-                    _message.tryEmit(result.message)
-                    load()
+                    when {
+                        result.httpStatus == 404 -> {
+                            _message.tryEmit("已删除")
+                            load()
+                        }
+                        result.httpStatus == 0 || result.httpStatus == 429 || result.httpStatus >= 500 -> {
+                            LedgerLocalStore.enqueueDelete(tenant, item.id)
+                            state.update { current -> current.copy(pending = pendingCount(LedgerLocalStore.load(tenant))) }
+                            _message.tryEmit("已离线删除，联网后自动同步")
+                        }
+                        else -> {
+                            LedgerLocalStore.putTransaction(tenant, item)
+                            state.update { current -> current.copy(transactions = current.transactions.map { if (it.id == item.id) item else it }) }
+                            _message.tryEmit(result.message)
+                            load()
+                        }
+                    }
                 }
             }
         }
@@ -263,7 +329,7 @@ class LedgerViewModel : ViewModel() {
                 when (val result = apiCall { createLedgerTransaction(tenant, request) }) {
                     is ApiResult.Success -> {
                         LedgerLocalStore.complete(tenant, request.client_id, result.data)
-                        state.update { it.copy(pending = LedgerLocalStore.load(tenant).pendingCreates.size) }
+                        state.update { it.copy(pending = pendingCount(LedgerLocalStore.load(tenant))) }
                         break
                     }
                     is ApiResult.Failure -> {
@@ -323,7 +389,7 @@ class LedgerViewModel : ViewModel() {
             it.client_id == request.client_id || (request.source_message_key != null && it.source_message_key == request.source_message_key)
         } ?: return false
         LedgerLocalStore.complete(tenant, request.client_id, match)
-        state.update { it.copy(pending = LedgerLocalStore.load(tenant).pendingCreates.size) }
+        state.update { it.copy(pending = pendingCount(LedgerLocalStore.load(tenant))) }
         return true
     }
 
@@ -334,38 +400,145 @@ class LedgerViewModel : ViewModel() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LedgerScreen() {
+fun LedgerScreen(onOpenDrawer: (() -> Unit)? = null) {
     val vm: LedgerViewModel = viewModel()
     val state by vm.state.collectAsState()
+    val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     var editor by remember { mutableStateOf<LedgerTransaction?>(null) }
     var adding by remember { mutableStateOf(false) }
+    val topBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     LaunchedEffect(Unit) { vm.init(); vm.message.collect { snackbar.showSnackbar(it) } }
 
     Scaffold(
+        modifier = Modifier.nestedScroll(topBarScrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { MainTopBar("记账") },
+        topBar = {
+            MainTopBar(
+                "记账",
+                navigationIcon = onOpenDrawer?.let { open -> { UserAvatarButton(onClick = open) } },
+                scrollBehavior = topBarScrollBehavior,
+                actions = {
+                    if (state.transactions.isNotEmpty()) {
+                        IconButton(onClick = {
+                            val sb = StringBuilder()
+                            sb.append("时间,类型,金额,币种,分类,商家/对象,状态,备注\n")
+                            state.transactions.forEach { t ->
+                                val typeStr = if (t.type == "income") "收入" else "支出"
+                                val amtStr = String.format(java.util.Locale.US, "%.2f", t.amount_minor / 100.0)
+                                val postedStr = if (t.posted) "已入账" else "未入账"
+                                val timeStr = t.occurred_at.take(19).replace('T', ' ')
+                                val safeNote = t.note.replace(",", "，").replace("\n", " ")
+                                val safeMerchant = t.merchant.replace(",", "，")
+                                val safeCategory = t.category.replace(",", "，")
+                                sb.append("$timeStr,$typeStr,$amtStr,${t.currency},$safeCategory,$safeMerchant,$postedStr,$safeNote\n")
+                            }
+                            val fileName = "Emailbox-Ledger-${state.month}.csv"
+                            FileSharing.shareText(context, sb.toString(), fileName, "text/csv")
+                        }) {
+                            Icon(Ym1rIcons.Download, contentDescription = "导出账目")
+                        }
+                    }
+                },
+            )
+        },
         floatingActionButton = {
-            FloatingActionButton(onClick = { adding = true }) { Icon(Icons.Outlined.Add, "快速记账") }
+            FloatingActionButton(
+                onClick = { adding = true },
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .padding(bottom = 80.dp)
+                    .size(56.dp),
+            ) {
+                Icon(Ym1rIcons.Plus, contentDescription = "记一笔", modifier = Modifier.size(28.dp))
+            }
         },
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(
+            Modifier
+                .fillMaxSize()
+                .padding(padding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 2.dp,
+                bottom = 140.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    IconButton(onClick = { vm.changeMonth(-1) }) { Icon(Icons.Outlined.ChevronLeft, "上个月") }
-                    Text(state.month.format(DateTimeFormatter.ofPattern("yyyy 年 M 月")), style = MaterialTheme.typography.titleMedium)
-                    IconButton(onClick = { vm.changeMonth(1) }) { Icon(Icons.Outlined.ChevronRight, "下个月") }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp, bottom = 2.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        modifier = Modifier.height(32.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .appleClickable(pressedScale = 0.82f) { vm.changeMonth(-1) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Ym1rIcons.ChevronLeft,
+                                    contentDescription = "上个月",
+                                    modifier = Modifier.size(17.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                text = state.month.format(DateTimeFormatter.ofPattern("yyyy 年 M 月")),
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = (-0.2).sp,
+                                ),
+                                modifier = Modifier.padding(horizontal = 6.dp),
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .appleClickable(pressedScale = 0.82f) { vm.changeMonth(1) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Ym1rIcons.ChevronRight,
+                                    contentDescription = "下个月",
+                                    modifier = Modifier.size(17.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                 }
             }
             if (state.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             item { SummaryCard(state.summary, state.transactions) }
             if (state.pending > 0) item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                ProductSurface(
+                    shape = MaterialTheme.shapes.medium,
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                ) {
                     Text("${state.pending} 笔离线记录等待同步", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onTertiaryContainer)
                 }
             }
             item { Text("最近记录", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp)) }
-            if (state.transactions.isEmpty()) item { EmptyBox("本月还没有账目", Icons.Outlined.ReceiptLong) }
+            if (state.transactions.isEmpty()) item { EmptyBox("本月还没有账目", Ym1rIcons.FileText) }
             items(state.transactions, key = { it.id }) { item ->
                 TransactionRow(
                     item = item,
@@ -403,26 +576,44 @@ fun LedgerScreen() {
 @Composable
 private fun SummaryCard(summary: LedgerSummary?, transactions: List<LedgerTransaction> = emptyList()) {
     val currencies = summary?.items?.map { it.currency }?.distinct().orEmpty().ifEmpty { listOf("CNY") }
-    Card(
+    ProductSurface(
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ),
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
             currencies.forEachIndexed { index, currency ->
-                if (index > 0) HorizontalDivider(Modifier.padding(vertical = 14.dp), color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = .15f))
+                if (index > 0) HorizontalDivider(Modifier.padding(vertical = 14.dp), color = MaterialTheme.colorScheme.outlineVariant)
                 val rows = summary?.items.orEmpty().filter { it.currency == currency }
                 val income = rows.filter { it.type == "income" }.sumOf { it.amount_minor }
                 val expenseRows = rows.filter { it.type == "expense" }
                 val expense = expenseRows.sumOf { it.amount_minor }
-                Text("本月结余 · $currency", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .82f))
-                Text(formatMoney(income - expense), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+                Text("本月结余 · $currency", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                RollingMoney(
+                    amountMinor = income - expense,
+                    currency = currency,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth()) {
-                    Column(Modifier.weight(1f)) { Text("收入", style = MaterialTheme.typography.labelMedium); Text(formatMoney(income), fontWeight = FontWeight.SemiBold) }
-                    Column(Modifier.weight(1f)) { Text("支出", style = MaterialTheme.typography.labelMedium); Text(formatMoney(expense), fontWeight = FontWeight.SemiBold) }
+                    Column(Modifier.weight(1f)) {
+                        Text("收入", style = MaterialTheme.typography.labelMedium)
+                        RollingMoney(
+                            amountMinor = income,
+                            currency = currency,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("支出", style = MaterialTheme.typography.labelMedium)
+                        RollingMoney(
+                            amountMinor = expense,
+                            currency = currency,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
                 // 未入账：邮件识别的建议账单等，不计入上面的结余。
                 // 正负口径与结余一致（收入 +、支出 −），排版与字体同「收入」行。
@@ -435,23 +626,64 @@ private fun SummaryCard(summary: LedgerSummary?, transactions: List<LedgerTransa
                             Text(
                                 "未入账",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .82f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Text(
-                                formatMoney(pendingNet),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold,
+                            RollingMoney(
+                                amountMinor = pendingNet,
+                                currency = currency,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
                 }
                 if (expense > 0) {
-                    Spacer(Modifier.height(10.dp))
-                    expenseRows.sortedByDescending { it.amount_minor }.take(5).forEach { row ->
-                        Row(Modifier.fillMaxWidth()) {
-                            Text(row.category, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            Text("${formatMoney(row.amount_minor)} · ${(row.amount_minor.toDouble() / expense * 100).roundToInt()}%", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(14.dp))
+                    Text("支出构成", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
+                    val topCategories = expenseRows.sortedByDescending { it.amount_minor }.take(5)
+                    val segmentPalette = listOf(
+                        MaterialTheme.colorScheme.primary,
+                        MaterialTheme.colorScheme.secondary,
+                        MaterialTheme.colorScheme.tertiary,
+                        MaterialTheme.colorScheme.error,
+                        MaterialTheme.colorScheme.outline,
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    ) {
+                        topCategories.forEachIndexed { catIndex, catRow ->
+                            val weight = (catRow.amount_minor.toFloat() / expense.toFloat()).coerceAtLeast(0.01f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .weight(weight)
+                                    .background(segmentPalette[catIndex % segmentPalette.size])
+                            )
                         }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    topCategories.forEachIndexed { catIndex, row ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(segmentPalette[catIndex % segmentPalette.size])
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(row.category, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                "${formatMoney(row.amount_minor)} · ${(row.amount_minor.toDouble() / expense * 100).roundToInt()}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
                     }
                 }
             }
@@ -462,26 +694,37 @@ private fun SummaryCard(summary: LedgerSummary?, transactions: List<LedgerTransa
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TransactionRow(item: LedgerTransaction, onEdit: () -> Unit) {
-    Card(
-        // 单击无动作；长按打开编辑。涟漪为 Material You 默认样式，
-        // 先 clip 圆角再挂 clickable，涟漪被限制在卡片圆角内不会溢出
+    ProductSurface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = androidx.compose.material3.ripple(),
+            .appleCombinedClickable(
+                pressedScale = 0.97f,
+                pressedAlpha = 0.92f,
                 onClick = {},
                 onLongClick = onEdit,
             ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Outlined.ReceiptLong,
-                contentDescription = null,
-                tint = if (item.type == "income") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
+            val iconBg = if (item.type == "income") {
+                AppleColors.Green
+            } else {
+                when (item.category) {
+                    "餐饮" -> AppleColors.Orange
+                    "交通" -> AppleColors.Blue
+                    "购物" -> AppleColors.Pink
+                    "订阅" -> AppleColors.Purple
+                    "住房" -> AppleColors.Indigo
+                    "医疗" -> AppleColors.Red
+                    "数码服务" -> AppleColors.Teal
+                    "工资" -> AppleColors.Green
+                    else -> AppleColors.Gray
+                }
+            }
+            AppleIconSquircle(
+                icon = Ym1rIcons.FileText,
+                backgroundColor = iconBg,
+                size = 36.dp,
+                iconSize = 20.dp,
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -518,13 +761,18 @@ fun LedgerEditorDialog(
     initialMerchant: String = "",
     onSave: (String, String, String, String, String, String, String, Boolean) -> Unit,
 ) {
+    val categoryEnabled = Prefs.ledgerCategoryEnabled
     var type by remember { mutableStateOf(item?.type ?: "expense") }
     var amount by remember { mutableStateOf(item?.let { formatMoney(it.amount_minor) } ?: initialAmount) }
     var currency by remember { mutableStateOf(item?.currency ?: initialCurrency) }
-    var category by remember { mutableStateOf(item?.category ?: initialCategory) }
+    var category by remember {
+        mutableStateOf(if (item == null && !categoryEnabled) "其他" else item?.category ?: initialCategory)
+    }
     var merchant by remember { mutableStateOf(item?.merchant ?: initialMerchant) }
     var note by remember { mutableStateOf(item?.note.orEmpty()) }
-    var posted by remember { mutableStateOf(item?.posted ?: true) }  // 新建默认已入账
+    var posted by remember {
+        mutableStateOf(item?.posted ?: true)
+    }
     var occurredAt by remember {
         mutableStateOf(
             item?.occurred_at?.take(16)?.replace('T', ' ')
@@ -543,43 +791,48 @@ fun LedgerEditorDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                 ) {
-                    FilterChip(type == "expense", { type = "expense" }, label = { Text("支出") })
-                    FilterChip(type == "income", { type = "income" }, label = { Text("收入") })
-                    Spacer(Modifier.weight(1f))
-                    // 入账状态按钮：已入账 = 对勾 + 删除线「已入账」；单击切为红色「未入账」
+                    AppleSegmentedControl(
+                        options = listOf("支出", "收入"),
+                        selectedIndex = if (type == "expense") 0 else 1,
+                        onSelect = { type = if (it == 0) "expense" else "income" },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    // 入账状态按钮：默认已入账，点击可手动切换为未入账
                     FilterChip(
                         selected = posted,
                         onClick = { posted = !posted },
                         leadingIcon = {
                             Icon(
-                                if (posted) Icons.Outlined.Check else Icons.Outlined.Close,
+                                if (posted) Ym1rIcons.Check else Ym1rIcons.X,
                                 null,
                                 Modifier.size(16.dp),
-                                tint = if (posted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                                tint = if (posted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                             )
                         },
                         label = {
                             Text(
                                 if (posted) "已入账" else "未入账",
-                                textDecoration = if (posted) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
-                                color = if (posted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                                color = if (posted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                             )
                         },
                     )
                 }
-                OutlinedTextField(amount, { amount = it }, Modifier.fillMaxWidth(), label = { Text("金额") }, singleLine = true)
+                ProductField(amount, { amount = it }, label = "金额", modifier = Modifier.fillMaxWidth(), placeholder = "例如 38.00")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("CNY", "USD", "HKD").forEach { value -> FilterChip(currency == value, { currency = value }, label = { Text(value) }) } }
-                Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    LEDGER_CATEGORIES.forEach { value -> FilterChip(category == value, { category = value }, label = { Text(value) }) }
+                if (categoryEnabled) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LEDGER_CATEGORIES.forEach { value -> FilterChip(category == value, { category = value }, label = { Text(value) }) }
+                    }
                 }
-                OutlinedTextField(merchant, { merchant = it }, Modifier.fillMaxWidth(), label = { Text("商户 / 来源") }, singleLine = true)
-                OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("备注") }, maxLines = 3)
-                OutlinedTextField(
+                ProductField(merchant, { merchant = it }, label = "商户 / 来源", modifier = Modifier.fillMaxWidth(), placeholder = "可选")
+                ProductField(note, { note = it }, label = "备注", modifier = Modifier.fillMaxWidth(), singleLine = false, placeholder = "可选")
+                ProductField(
                     occurredAt,
                     { occurredAt = it },
-                    Modifier.fillMaxWidth(),
-                    label = { Text("记录时间") },
-                    supportingText = { Text("格式 yyyy-MM-dd HH:mm，可自定义记账时间") },
+                    label = "记录时间",
+                    modifier = Modifier.fillMaxWidth(),
+                    supporting = "格式 yyyy-MM-dd HH:mm，可自定义记账时间",
                     isError = occurredAt.isNotBlank() && !timeValid,
                     singleLine = true,
                 )
@@ -593,7 +846,7 @@ fun LedgerEditorDialog(
         },
         dismissButton = {
             Row {
-                if (onDelete != null) TextButton(onClick = onDelete) { Icon(Icons.Outlined.Delete, null); Spacer(Modifier.width(4.dp)); Text("删除") }
+                if (onDelete != null) TextButton(onClick = onDelete) { Icon(Ym1rIcons.Trash2, null); Spacer(Modifier.width(4.dp)); Text("删除") }
                 TextButton(onClick = onDismiss) { Text("取消") }
             }
         },

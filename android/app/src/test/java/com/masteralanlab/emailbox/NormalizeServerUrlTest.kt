@@ -16,35 +16,35 @@ class NormalizeServerUrlTest {
     fun `bare host becomes https with default path`() {
         assertEquals(
             Prefs.DEFAULT_SERVER,
-            normalizeServerUrl("ym3861.cn"),
+            normalizeServerUrl("example.com"),
         )
     }
 
     @Test
     fun `production address with subpath is preserved and trimmed`() {
         assertEquals(
-            "https://ym3861.cn/emailbox",
-            normalizeServerUrl("https://ym3861.cn/emailbox/"),
+            "https://example.com/emailbox",
+            normalizeServerUrl("https://example.com/emailbox/"),
         )
     }
 
     @Test
     fun `plain http is upgraded to https`() {
         assertEquals(
-            "https://ym3861.cn/emailbox",
-            normalizeServerUrl("http://ym3861.cn/emailbox"),
+            "https://example.com/emailbox",
+            normalizeServerUrl("http://example.com/emailbox"),
         )
     }
 
     @Test
     fun `bare production host gains emailbox path`() {
         assertEquals(
-            "https://ym3861.cn/emailbox",
-            normalizeServerUrl("https://ym3861.cn"),
+            "https://example.com/emailbox",
+            normalizeServerUrl("https://example.com"),
         )
         assertEquals(
-            "https://ym3861.cn/emailbox",
-            normalizeServerUrl("ym3861.cn/"),
+            "https://example.com/emailbox",
+            normalizeServerUrl("example.com/"),
         )
     }
 
@@ -64,17 +64,17 @@ class NormalizeServerUrlTest {
     @Test
     fun `embedded credentials are rejected`() {
         assertThrows(IllegalArgumentException::class.java) {
-            normalizeServerUrl("https://user:pass@ym3861.cn/emailbox")
+            normalizeServerUrl("https://user:pass@example.com/emailbox")
         }
     }
 
     @Test
     fun `query and fragment are rejected`() {
         assertThrows(IllegalArgumentException::class.java) {
-            normalizeServerUrl("https://ym3861.cn/emailbox?next=1")
+            normalizeServerUrl("https://example.com/emailbox?next=1")
         }
         assertThrows(IllegalArgumentException::class.java) {
-            normalizeServerUrl("https://ym3861.cn/emailbox#login")
+            normalizeServerUrl("https://example.com/emailbox#login")
         }
     }
 
@@ -88,8 +88,8 @@ class NormalizeServerUrlTest {
     @Test
     fun `api base url ends with slash for retrofit`() {
         assertEquals(
-            "https://ym3861.cn/emailbox/api/v1/",
-            apiBaseUrl("https://ym3861.cn/emailbox"),
+            "https://example.com/emailbox/api/v1/",
+            apiBaseUrl("https://example.com/emailbox"),
         )
     }
 }

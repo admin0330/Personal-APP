@@ -131,11 +131,11 @@ fun groupColorKey(color: String?): String = color?.takeIf { it.isNotBlank() } ?:
 
 @Composable
 fun groupTint(color: String?): Color = when (groupColorKey(color)) {
-    "blue" -> Color(0xFF1B6EF3)
-    "green" -> Color(0xFF1E8E3E)
-    "amber" -> Color(0xFFB06000)
-    "red" -> Color(0xFFD93025)
-    "purple" -> Color(0xFF8430CE)
+    "blue" -> MaterialTheme.colorScheme.primary
+    "green" -> MaterialTheme.colorScheme.tertiary
+    "amber" -> MaterialTheme.colorScheme.secondary
+    "red" -> MaterialTheme.colorScheme.error
+    "purple" -> MaterialTheme.colorScheme.tertiary
     else -> MaterialTheme.colorScheme.outline
 }
 

@@ -53,6 +53,19 @@ object FileSharing {
         }
     }
 
+    fun shareText(
+        context: Context,
+        content: String,
+        fileName: String,
+        mimeType: String = guessMime(fileName),
+    ) {
+        val dir = File(context.cacheDir, "exports").apply { mkdirs() }
+        val safeName = fileName.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "export.txt" }
+        val target = File(dir, safeName)
+        target.writeText(content, Charsets.UTF_8)
+        share(context, target, mimeType)
+    }
+
     fun guessMime(name: String): String {
         val lower = name.lowercase()
         return when {
@@ -64,6 +77,7 @@ object FileSharing {
             lower.endsWith(".zip") -> "application/zip"
             lower.endsWith(".txt") || lower.endsWith(".log") -> "text/plain"
             lower.endsWith(".csv") -> "text/csv"
+            lower.endsWith(".md") -> "text/markdown"
             lower.endsWith(".eml") -> "message/rfc822"
             else -> "*/*"
         }

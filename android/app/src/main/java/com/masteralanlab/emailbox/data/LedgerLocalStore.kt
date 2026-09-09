@@ -126,13 +126,13 @@ object LedgerLocalStore {
     @Synchronized
     fun enqueueUpdate(tenant: String, op: PendingLedgerUpdate) {
         val data = load(tenant)
-        save(data.copy(pendingUpdates = data.pendingUpdates + op))
+        save(data.copy(pendingUpdates = data.pendingUpdates.filterNot { it.serverId == op.serverId } + op))
     }
 
     @Synchronized
     fun enqueueDelete(tenant: String, serverId: String) {
         val data = load(tenant)
-        save(data.copy(pendingDeletes = data.pendingDeletes + serverId))
+        if (serverId !in data.pendingDeletes) save(data.copy(pendingDeletes = data.pendingDeletes + serverId))
     }
 
     @Synchronized

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_surface">#121318</color>
+    <color name="widget_on_surface">#E3E2E9</color>
+    <color name="widget_on_surface_variant">#C6C6CF</color>
+    <color name="widget_primary">#B2C6FF</color>
+</resources>

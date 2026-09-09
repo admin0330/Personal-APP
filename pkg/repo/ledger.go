@@ -133,7 +133,7 @@ func mapSQLiteLedger(v sqlitedb.LedgerTransaction) *model.LedgerTransaction {
 	return &model.LedgerTransaction{ID: v.ID, TenantID: v.TenantID, Type: v.Type, AmountMinor: v.AmountMinor,
 		Currency: v.Currency, Category: v.Category, OccurredAt: v.OccurredAt, Merchant: v.Merchant,
 		Note: v.Note, Source: v.Source, SourceMessageKey: stringPtr(v.SourceMessageKey), ClientID: v.ClientID,
-		Posted: v.Posted != 0,
+		Posted:    v.Posted != 0,
 		CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, DeletedAt: timePtr(v.DeletedAt)}
 }
 
@@ -141,6 +141,6 @@ func mapPostgresLedger(v postgresdb.LedgerTransaction) *model.LedgerTransaction 
 	return &model.LedgerTransaction{ID: v.ID, TenantID: v.TenantID, Type: v.Type, AmountMinor: v.AmountMinor,
 		Currency: v.Currency, Category: v.Category, OccurredAt: v.OccurredAt, Merchant: v.Merchant,
 		Note: v.Note, Source: v.Source, SourceMessageKey: stringPtr(v.SourceMessageKey), ClientID: v.ClientID,
-		Posted: v.Posted,
+		Posted:    v.Posted,
 		CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, DeletedAt: timePtr(v.DeletedAt)}
 }

@@ -22,6 +22,8 @@ func testStore(t *testing.T) *repo.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 与生产 SQLite 连接池保持一致，避免并发用例变成 SQLite_BUSY 测试。
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	if err := migrations.Up(context.Background(), db, "sqlite"); err != nil {
 		t.Fatal(err)
